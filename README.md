@@ -18,16 +18,26 @@ git clone <url> ~/git/ffmpeg_convert
 bash ~/git/ffmpeg_convert/linux/install.sh
 ```
 
-Skrypt automatycznie zainstaluje brakujące zależności (`ffmpeg`, `zenity`), stworzy symlinki w `~/.local/bin/`, skopiuje akcje Nemo i zrestartuje menedżer plików.
+Skrypt automatycznie zainstaluje brakujące zależności (`ffmpeg`, `zenity`, `python3-pyqt5`), stworzy symlinki w `~/.local/bin/`, skopiuje akcje Nemo, doda skrót do menu aplikacji dla GUI i zrestartuje menedżer plików.
 
 Dzięki symlinkowi każda zmiana w repozytorium jest od razu widoczna w systemie — bez ponownej instalacji.
 
-### Skrypty
+### Skrypty (menu kontekstowe Nemo)
 
 | Plik | Opis |
 |------|------|
 | `convert_video.sh` | Konwersja wideo (H.264, H.265, DNxHD, ProRes, klatki, WAV) |
-| `compress_images.sh` | Kompresja PNG → JPG (wybór jakości Q2/Q5/Q10) |
+| `compress_images.sh` | Kompresja PNG → JPG / zmiana nazwy z numeracją / zachowanie oryginału |
+
+### Aplikacja GUI
+
+`gui_convert.py` — okno z drag & drop dla obrazów i wideo (PyQt5): automatyczne rozpoznanie typu plików, te same presety/opcje co w skryptach Nemo, podgląd nazw na żywo przy zmianie nazwy, log i pasek postępu konwersji w tle.
+
+Po instalacji dostępna w menu aplikacji jako **„FFmpeg Convert”**, albo bezpośrednio:
+
+```bash
+~/git/ffmpeg_convert/linux/gui_convert.py
+```
 
 ---
 

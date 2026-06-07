@@ -39,6 +39,31 @@ for action in "$REPO_DIR"/*.nemo_action; do
     echo "  $(basename "$action")"
 done
 
+# GUI Convert — aplikacja z drag&drop (PyQt5)
+echo "► Konfiguruję GUI Convert..."
+chmod +x "$REPO_DIR/gui_convert.py"
+
+if ! python3 -c "from PyQt5 import QtWidgets" &>/dev/null; then
+    echo "  Brakuje PyQt5 — instaluję: sudo apt install python3-pyqt5"
+    sudo apt install -y python3-pyqt5
+fi
+
+APPS_DIR="$HOME/.local/share/applications"
+mkdir -p "$APPS_DIR"
+cat > "$APPS_DIR/ffmpeg-convert-gui.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=FFmpeg Convert
+Comment=Konwersja i kompresja obrazów oraz wideo (drag & drop)
+Exec=$REPO_DIR/gui_convert.py
+Icon=applications-multimedia
+Terminal=false
+Categories=AudioVideo;Utility;
+StartupNotify=true
+EOF
+update-desktop-database "$APPS_DIR" 2>/dev/null || true
+echo "  $APPS_DIR/ffmpeg-convert-gui.desktop"
+
 # restart Nemo
 echo "► Restartuję Nemo..."
 nemo -q 2>/dev/null || true
