@@ -1,0 +1,97 @@
+Windows Registry Editor Version 5.00
+
+; ► menu główne
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo]
+"MUIVerb"="Konwertuj wideo ▶"
+"SubCommands"=""
+
+; ────────── MP4 H.264
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\01H264]
+"MUIVerb"="MP4 H.264 (CRF 18)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\01H264\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset h264 %*"
+
+; ────────── MP4 H.265
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\02H265]
+"MUIVerb"="MP4 H.265 / HEVC (CRF 23)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\02H265\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset h265 %*"
+
+; ────────── DNxHD
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\03DNxHD]
+"MUIVerb"="DNxHD 1080p (120 Mb/s)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\03DNxHD\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset dnxhd %*"
+
+; ────────── DNxHR
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\04DNxHR]
+"MUIVerb"="DNxHR HQ 4K"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\04DNxHR\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset dnxhr %*"
+
+; ────────── ProRes
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\05ProRes]
+"MUIVerb"="ProRes 422 HQ"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\05ProRes\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset prores %*"
+
+; ────────── Cineform
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\06Cineform]
+"MUIVerb"="Cineform Q4 (10-bit)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\06Cineform\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset cineform %*"
+
+; ────────── GUI wybór
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\07GUI]
+"MUIVerb"="Wybierz z GUI…"
+"Icon"="powershell.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\07GUI\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" %*"
+
+; ────────── Klatki PNG
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\08FramesPNG]
+"MUIVerb"="Klatki PNG (lossless)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\08FramesPNG\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset frames_png %*"
+
+; ────────── Klatki JPEG
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\09FramesJPG]
+"MUIVerb"="Klatki JPEG (Q2)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\09FramesJPG\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset frames_jpg %*"
+
+; ────────── Klatki EXR
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\10FramesEXR]
+"MUIVerb"="Klatki EXR (16-bit)"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\10FramesEXR\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset frames_exr %*"
+
+; ────────── Ostatnia klatka
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\11LastFrame]
+"MUIVerb"="Ostatnia klatka PNG"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\11LastFrame\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset last_frame %*"
+
+; ────────── Klatki + WAV
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\12FramesWav]
+"MUIVerb"="Eksport klatek + WAV"
+"Icon"="ffmpeg.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\12FramesWav\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Preset frames_wav %*"
+
+; ────────── Debug
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\13Debug]
+"MUIVerb"="Debug (GUI)"
+"Icon"="powershell.exe"
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo\shell\13Debug\command]
+@="powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%\\scripts\\convert_video.ps1\" -Debug %*"

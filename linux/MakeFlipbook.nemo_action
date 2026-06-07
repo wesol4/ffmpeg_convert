@@ -1,0 +1,8 @@
+[Nemo Action]
+Name=Make Flipbook (Spritesheet)
+Comment=Utwórz flipbook spritesheet z zaznaczonych klatek
+Exec=gnome-terminal -- bash -c '/home/wesol/.local/bin/make_flipbook.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
+Icon-Name=image-x-generic
+Selection=Any
+Extensions=png;PNG;jpg;JPG;jpeg;JPEG;tif;TIF;tiff;TIFF;exr;EXR
+Terminal=true

@@ -1,0 +1,8 @@
+[Nemo Action]
+Name=Video Convert (FFmpeg)
+Comment=Konwersja wideo (DNxHD, ProRes itp.)
+Exec=gnome-terminal -- bash -c '/home/wesol/.local/bin/convert_video.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
+Icon-Name=video-x-generic
+Selection=Any
+Extensions=mp4;MP4;mkv;MKV;mov;MOV
+Terminal=true
