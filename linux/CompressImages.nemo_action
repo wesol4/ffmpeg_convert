@@ -1,8 +1,7 @@
 [Nemo Action]
 Name=Kompresuj / zmień nazwę obrazów
-Comment=Skompresuj do JPG, zmień nazwę lub zachowaj oryginalny format (PNG/EXR/...) — FFmpeg
-Exec=gnome-terminal -- bash -c '/home/wesol/.local/bin/compress_images.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
+Comment=Otwórz GUI FFmpeg Convert (kompresja JPG, zmiana nazwy, zachowanie oryginału)
+Exec=__GUI__ %F
 Icon-Name=image-x-generic
 Selection=Any
 Extensions=png;PNG;jpg;JPG;jpeg;JPEG;exr;EXR;tif;TIF;tiff;TIFF;webp;WEBP
-Terminal=true
