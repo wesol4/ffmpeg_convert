@@ -1,7 +1,7 @@
 [Nemo Action]
 Name=Split Image (Grid)
 Comment=Podziel obraz na siatkę X×Y
-Exec=gnome-terminal -- bash -c '/home/wesol/.local/bin/split_image.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
+Exec=gnome-terminal -- bash -c '__HOME__/.local/bin/split_image.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
 Icon-Name=edit-cut
 Selection=Any
 Extensions=png;PNG;jpg;JPG;jpeg;JPEG;webp;WEBP;tif;TIF;tiff;TIFF

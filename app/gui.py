@@ -1,186 +1,89 @@
 #!/usr/bin/env python3
-"""Jedno okno: przeciągnij pliki (obrazy lub wideo) i skonwertuj je przez FFmpeg."""
-import shutil
-import subprocess
+"""GUI (PyQt5): przeciągnij pliki (obrazy lub wideo) i skonwertuj je przez FFmpeg.
+
+Cała logika konwersji pochodzi z presets.py + runner.py — to samo źródło, co CLI.
+Ten moduł to wyłącznie warstwa interfejsu.
+"""
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
-    QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar,
-    QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFrame, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
+    QProgressBar, QPushButton, QRadioButton, QScrollArea, QSlider, QSpinBox,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".webp"}
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+if __package__:
+    from . import presets, runner
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import presets
+    import runner
+
 ICON = {"image": "🖼", "video": "🎬"}
-
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-
-ACCENT = "#34d399"
 
 APP_STYLE = """
 * { font-family: "Inter", "Ubuntu", "Segoe UI", sans-serif; }
 
-QWidget {
-    background-color: #0f1622;
-    color: #e7ebf3;
-    font-size: 13px;
-}
+QWidget { background-color: #0f1622; color: #e7ebf3; font-size: 13px; }
 
-QLabel#Title {
-    font-size: 22px;
-    font-weight: 700;
-    color: #f2f5fa;
-}
-QLabel#Subtitle {
-    font-size: 13px;
-    color: #8a96ab;
-}
+QLabel#Title { font-size: 22px; font-weight: 700; color: #f2f5fa; }
+QLabel#Subtitle { font-size: 13px; color: #8a96ab; }
 
 QFrame#Card, QGroupBox {
-    background-color: #161f30;
-    border: 1px solid #283248;
-    border-radius: 14px;
+    background-color: #161f30; border: 1px solid #283248; border-radius: 14px;
 }
 QGroupBox {
-    margin-top: 16px;
-    padding: 18px 14px 14px 14px;
-    font-weight: 600;
-    color: #e7ebf3;
+    margin-top: 16px; padding: 18px 14px 14px 14px; font-weight: 600; color: #e7ebf3;
 }
 QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 16px;
-    top: 4px;
-    padding: 0 6px;
-    color: #8a96ab;
-    font-weight: 600;
-    font-size: 12px;
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 16px; top: 4px; padding: 0 6px; color: #8a96ab; font-weight: 600; font-size: 12px;
 }
 
 QListWidget, QLineEdit, QComboBox, QPlainTextEdit {
-    background-color: #121a29;
-    border: 1px solid #283248;
-    border-radius: 10px;
-    padding: 8px;
-    color: #e7ebf3;
-    selection-background-color: #1c3a32;
-    selection-color: #d8fff0;
+    background-color: #121a29; border: 1px solid #283248; border-radius: 10px;
+    padding: 8px; color: #e7ebf3; selection-background-color: #1c3a32; selection-color: #d8fff0;
 }
-QListWidget[empty="true"] {
-    border: 2px dashed #34495f;
-    color: #5d6b80;
-}
-QListWidget::item {
-    padding: 4px 2px;
-    border-radius: 6px;
-}
-QListWidget::item:selected {
-    background-color: #1c3a32;
-    color: #d8fff0;
-}
+QListWidget[empty="true"] { border: 2px dashed #34495f; color: #5d6b80; }
+QListWidget::item { padding: 4px 2px; border-radius: 6px; }
+QListWidget::item:selected { background-color: #1c3a32; color: #d8fff0; }
 
-QPushButton {
-    border: none;
-    border-radius: 9px;
-    padding: 9px 20px;
-    font-weight: 600;
-}
-QPushButton#Primary {
-    background-color: #34d399;
-    color: #07291d;
-}
+QPushButton { border: none; border-radius: 9px; padding: 9px 20px; font-weight: 600; }
+QPushButton#Primary { background-color: #34d399; color: #07291d; }
 QPushButton#Primary:hover   { background-color: #4ee0ac; }
 QPushButton#Primary:pressed { background-color: #22b67f; }
 QPushButton#Primary:disabled { background-color: #283248; color: #5d6b80; }
-
 QPushButton#Secondary {
-    background-color: #1c2638;
-    color: #e7ebf3;
-    border: 1px solid #2c3850;
+    background-color: #1c2638; color: #e7ebf3; border: 1px solid #2c3850;
 }
 QPushButton#Secondary:hover   { background-color: #243049; }
 QPushButton#Secondary:pressed { background-color: #1a2336; }
 
-QRadioButton, QCheckBox {
-    spacing: 10px;
-    padding: 3px 0;
-    color: #e7ebf3;
-}
+QRadioButton, QCheckBox { spacing: 10px; padding: 3px 0; color: #e7ebf3; }
 QRadioButton::indicator, QCheckBox::indicator {
-    width: 17px;
-    height: 17px;
-    border-radius: 9px;
-    border: 1.5px solid #3b4863;
-    background: #121a29;
+    width: 17px; height: 17px; border-radius: 9px; border: 1.5px solid #3b4863; background: #121a29;
 }
-QRadioButton::indicator:checked {
-    border: 5px solid #34d399;
-    background: #121a29;
-}
+QRadioButton::indicator:checked { border: 5px solid #34d399; background: #121a29; }
 QCheckBox::indicator { border-radius: 5px; }
-QCheckBox::indicator:checked {
-    border: 1.5px solid #34d399;
-    background: #34d399;
-}
+QCheckBox::indicator:checked { border: 1.5px solid #34d399; background: #34d399; }
 
 QProgressBar {
-    border: none;
-    border-radius: 6px;
-    background-color: #1c2638;
-    height: 10px;
-    text-align: center;
-    color: transparent;
+    border: none; border-radius: 6px; background-color: #1c2638; height: 10px;
+    text-align: center; color: transparent;
 }
-QProgressBar::chunk {
-    background-color: #34d399;
-    border-radius: 6px;
-}
+QProgressBar::chunk { background-color: #34d399; border-radius: 6px; }
 
-QScrollBar:vertical {
-    background: transparent;
-    width: 10px;
-    margin: 2px;
-}
-QScrollBar::handle:vertical {
-    background: #2c3850;
-    border-radius: 5px;
-    min-height: 24px;
-}
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #2c3850; border-radius: 5px; min-height: 24px; }
 QScrollBar::handle:vertical:hover { background: #3b4a68; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
-
-VIDEO_PRESETS = [
-    "MP4 H.264 (CRF 18)",
-    "MP4 H.265 / HEVC (CRF 23)",
-    "DNxHD 1080p",
-    "ProRes 422 HQ",
-    "Cineform Q4 (10-bit)",
-    "Ostatnia klatka PNG",
-    "Eksport klatek + WAV",
-]
-
-VIDEO_SUFFIX = {
-    "MP4 H.264 (CRF 18)": ("H264", "mp4"),
-    "MP4 H.265 / HEVC (CRF 23)": ("HEVC", "mp4"),
-    "DNxHD 1080p": ("DNxHD", "mov"),
-    "ProRes 422 HQ": ("PR", "mov"),
-    "Cineform Q4 (10-bit)": ("CF", "mov"),
-}
-
-
-def kind_of(path: Path) -> str:
-    ext = path.suffix.lower()
-    if ext in IMAGE_EXTS:
-        return "image"
-    if ext in VIDEO_EXTS:
-        return "video"
-    return "other"
 
 
 class DropList(QListWidget):
@@ -289,10 +192,8 @@ class ImagePanel(QWidget):
         self.files = files
         self._update_preview()
 
-    def _matches(self, path: Path) -> bool:
-        if self.rb_keep.isChecked():
-            return True
-        return path.suffix.lower() == ".png"
+    def _keep(self):
+        return self.rb_keep.isChecked()
 
     def _quality(self):
         if self.rb_q2.isChecked():
@@ -305,40 +206,33 @@ class ImagePanel(QWidget):
             return 1
         return None  # Zachowaj oryginał
 
-    def _target_name(self, path: Path, idx: int):
-        newname = self.name_edit.text().strip()
-        base = f"{newname}_{idx:03d}" if newname else path.stem
-        ext = path.suffix.lstrip(".") if self.rb_keep.isChecked() else "jpg"
-        return base, ext
-
     def _update_preview(self):
         self.preview_list.clear()
+        keep = self._keep()
+        newname = self.name_edit.text().strip()
+        lines = []
         idx = 0
         for path in self.files:
-            if not self._matches(path):
+            if presets.kind_of(path) != "image":
                 continue
             idx += 1
-            base, ext = self._target_name(path, idx)
-            self.preview_list.addItem(f"{path.name}  →  {base}.{ext}")
+            base, ext = presets.image_target_name(path, idx, newname, keep)
+            lines.append(f"{path.name}  →  {base}.{ext}")
+
+        # Przy wielu plikach pokazujemy próbkę: 3 pierwsze + ostatni.
+        if len(lines) <= 4:
+            preview = lines
+        else:
+            preview = lines[:3] + [f"… (jeszcze {len(lines) - 4} plików) …", lines[-1]]
+        for line in preview:
+            self.preview_list.addItem(line)
 
     def build_jobs(self):
-        """list[(src, out_path, ('copy', None) | ('encode', q))]"""
-        jobs = []
-        keep = self.rb_keep.isChecked()
-        q = self._quality()
-        subdir = self.rb_subdir.isChecked()
-        idx = 0
-        for path in self.files:
-            if not self._matches(path):
-                continue
-            idx += 1
-            base, ext = self._target_name(path, idx)
-            out_dir = (path.parent / "compressed") if subdir else path.parent
-            out_path = out_dir / f"{base}.{ext}"
-            if out_path.resolve() == path.resolve():
-                continue
-            jobs.append((path, out_path, ("copy", None) if keep else ("encode", q)))
-        return jobs
+        keep = self._keep()
+        return presets.build_image_jobs(
+            self.files, quality=self._quality(), keep=keep,
+            newname=self.name_edit.text().strip(), subdir=self.rb_subdir.isChecked(),
+        )
 
 
 class VideoPanel(QWidget):
@@ -350,102 +244,103 @@ class VideoPanel(QWidget):
         preset_box = QGroupBox("Preset konwersji")
         play = QVBoxLayout(preset_box)
         self.preset_group = QButtonGroup(self)
-        self.preset_buttons = {}
-        for i, name in enumerate(VIDEO_PRESETS):
-            rb = QRadioButton(name)
+        self.preset_buttons = {}  # id -> radiobutton
+        for i, (pid, label) in enumerate(presets.VIDEO_PRESETS):
+            rb = QRadioButton(label)
             if i == 0:
                 rb.setChecked(True)
-            rb.toggled.connect(self._toggle_frames_box)
+            rb.toggled.connect(self._toggle_option_boxes)
             self.preset_group.addButton(rb)
-            self.preset_buttons[name] = rb
+            self.preset_buttons[pid] = rb
             play.addWidget(rb)
         layout.addWidget(preset_box)
 
-        self.frames_box = QGroupBox("Format klatek (dla eksportu klatek + WAV)")
+        self.frames_box = QGroupBox("Eksport klatek")
         flay = QHBoxLayout(self.frames_box)
         flay.addWidget(QLabel("Format:"))
         self.frames_format = QComboBox()
         self.frames_format.addItems(["PNG", "JPG", "EXR"])
         flay.addWidget(self.frames_format)
+        self.frames_wav = QCheckBox("Eksportuj też WAV")
+        self.frames_wav.setChecked(True)
+        flay.addWidget(self.frames_wav)
         flay.addStretch()
         self.frames_box.setVisible(False)
         layout.addWidget(self.frames_box)
 
+        # Opcje dla presetu "h264size".
+        self.size_box = QGroupBox("Kontrola rozmiaru / kompresji (H.264)")
+        slay = QVBoxLayout(self.size_box)
+        self.size_mode_group = QButtonGroup(self)
+
+        self.rb_crf = QRadioButton("Jakość (CRF) — jeden przebieg")
+        self.rb_crf.setChecked(True)
+        self.size_mode_group.addButton(self.rb_crf)
+        slay.addWidget(self.rb_crf)
+
+        crf_row = QHBoxLayout()
+        crf_row.addSpacing(28)
+        self.crf_slider = QSlider(Qt.Horizontal)
+        self.crf_slider.setRange(18, 32)
+        self.crf_slider.setValue(23)
+        self.crf_label = QLabel()
+        self.crf_label.setMinimumWidth(150)
+        self.crf_slider.valueChanged.connect(self._update_crf_label)
+        crf_row.addWidget(self.crf_slider, 1)
+        crf_row.addWidget(self.crf_label)
+        slay.addLayout(crf_row)
+        self._update_crf_label(self.crf_slider.value())
+
+        self.rb_target = QRadioButton("Docelowy rozmiar pliku (MB) — dwa przebiegi")
+        self.size_mode_group.addButton(self.rb_target)
+        slay.addWidget(self.rb_target)
+
+        target_row = QHBoxLayout()
+        target_row.addSpacing(28)
+        target_row.addWidget(QLabel("Rozmiar:"))
+        self.target_mb = QSpinBox()
+        self.target_mb.setRange(1, 100000)
+        self.target_mb.setValue(25)
+        self.target_mb.setSuffix(" MB")
+        target_row.addWidget(self.target_mb)
+        target_row.addStretch()
+        slay.addLayout(target_row)
+
+        self.size_box.setVisible(False)
+        layout.addWidget(self.size_box)
+
         layout.addStretch()
 
-    def _toggle_frames_box(self):
-        self.frames_box.setVisible(self.preset_buttons["Eksport klatek + WAV"].isChecked())
+    def _update_crf_label(self, value):
+        if value <= 20:
+            hint = "najlepsza jakość, duży plik"
+        elif value <= 25:
+            hint = "dobra jakość"
+        else:
+            hint = "mniejszy plik"
+        self.crf_label.setText(f"CRF {value} — {hint}")
+
+    def _toggle_option_boxes(self):
+        self.frames_box.setVisible(self.preset_buttons["frames"].isChecked())
+        self.size_box.setVisible(self.preset_buttons["h264size"].isChecked())
 
     def set_files(self, files):
         self.files = files
 
     def _selected_preset(self):
-        for name, rb in self.preset_buttons.items():
+        for pid, rb in self.preset_buttons.items():
             if rb.isChecked():
-                return name
+                return pid
         return None
 
-    def _encode_cmd(self, preset, src: Path, out_path: Path):
-        common = [FFMPEG, "-y", "-i", str(src)]
-        if preset == "MP4 H.264 (CRF 18)":
-            return common + ["-c:v", "libx264", "-crf", "18", "-preset", "slow",
-                             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(out_path)]
-        if preset == "MP4 H.265 / HEVC (CRF 23)":
-            return common + ["-c:v", "libx265", "-crf", "23", "-preset", "medium",
-                             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(out_path)]
-        if preset == "DNxHD 1080p":
-            return common + ["-vf", "scale=1920:1080", "-c:v", "dnxhd", "-b:v", "120M",
-                             "-pix_fmt", "yuv422p", "-c:a", "pcm_s16le", str(out_path)]
-        if preset == "ProRes 422 HQ":
-            return common + ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
-                             "-c:a", "pcm_s16le", str(out_path)]
-        if preset == "Cineform Q4 (10-bit)":
-            return common + ["-c:v", "cfhd", "-quality", "4", "-pix_fmt", "yuv422p10le",
-                             "-c:a", "pcm_s16le", str(out_path)]
-        raise ValueError(preset)
-
     def build_jobs(self):
-        """list[dict(label, cmds, mkdir_target)]"""
-        preset = self._selected_preset()
-        batch = len(self.files) > 1
-        jobs = []
-
-        for src in self.files:
-            base = src.stem
-
-            if preset in VIDEO_SUFFIX:
-                suf, ext = VIDEO_SUFFIX[preset]
-                out_dir = (src.parent / suf) if batch else src.parent
-                out_path = out_dir / f"{base}_{suf}.{ext}"
-                jobs.append({
-                    "label": f"{src.name} → {out_path.relative_to(src.parent)}",
-                    "cmds": [self._encode_cmd(preset, src, out_path)],
-                    "mkdir_target": out_path.parent,
-                })
-
-            elif preset == "Ostatnia klatka PNG":
-                out_path = src.parent / f"{base}_last.png"
-                cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), "-update", "1", str(out_path)]
-                jobs.append({
-                    "label": f"{src.name} → {out_path.name}",
-                    "cmds": [cmd],
-                    "mkdir_target": out_path.parent,
-                })
-
-            elif preset == "Eksport klatek + WAV":
-                fmt = self.frames_format.currentText().lower()
-                frames_dir = src.parent / base
-                pattern = frames_dir / f"{base}_%04d.{fmt}"
-                wav_path = frames_dir / f"{base}.wav"
-                cmd1 = [FFMPEG, "-y", "-i", str(src), str(pattern)]
-                cmd2 = [FFMPEG, "-y", "-i", str(src), "-vn", "-acodec", "pcm_s24le", str(wav_path)]
-                jobs.append({
-                    "label": f"{src.name} → {frames_dir.name}/ (klatki {fmt.upper()} + WAV)",
-                    "cmds": [cmd1, cmd2],
-                    "mkdir_target": frames_dir,
-                })
-
-        return jobs
+        return presets.build_video_jobs(
+            self._selected_preset(), self.files,
+            size_mode=("crf" if self.rb_crf.isChecked() else "size"),
+            crf=self.crf_slider.value(), target_mb=self.target_mb.value(),
+            frames_format=self.frames_format.currentText().lower(),
+            frames_with_wav=self.frames_wav.isChecked(),
+        )
 
 
 class ConvertWorker(QThread):
@@ -453,33 +348,16 @@ class ConvertWorker(QThread):
     progress = pyqtSignal(int, int)
     done = pyqtSignal()
 
-    def __init__(self, mode, jobs):
+    def __init__(self, jobs):
         super().__init__()
-        self.mode = mode
         self.jobs = jobs
 
     def run(self):
-        total = len(self.jobs)
-        for i, job in enumerate(self.jobs, start=1):
-            try:
-                if self.mode == "image":
-                    src, out_path, (action, q) = job
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    if action == "copy":
-                        shutil.copy2(src, out_path)
-                    else:
-                        cmd = [FFMPEG, "-y", "-i", str(src), "-q:v", str(q),
-                               "-vf", "format=yuvj420p", str(out_path), "-loglevel", "error"]
-                        subprocess.run(cmd, check=True)
-                    self.log.emit(f"OK:  {src.name}  →  {out_path.name}")
-                else:
-                    job["mkdir_target"].mkdir(parents=True, exist_ok=True)
-                    for cmd in job["cmds"]:
-                        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    self.log.emit(f"OK:  {job['label']}")
-            except Exception as exc:
-                self.log.emit(f"BŁĄD: {exc}")
-            self.progress.emit(i, total)
+        runner.run_jobs(
+            self.jobs,
+            on_log=self.log.emit,
+            on_progress=lambda cur, total: self.progress.emit(cur, total),
+        )
         self.done.emit()
 
 
@@ -487,7 +365,11 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FFmpeg Convert")
-        self.resize(760, 840)
+        # Nie otwieraj okna większego niż dostępny ekran — inaczej dolny pasek
+        # z przyciskiem "Konwertuj" wychodzi poza krawędź i nie da się go kliknąć.
+        avail = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumSize(min(560, avail.width() - 20), min(420, avail.height() - 20))
+        self.resize(min(760, avail.width() - 40), min(840, avail.height() - 60))
         self.files = []
         self.kind = None
         self.worker = None
@@ -506,9 +388,20 @@ class MainWindow(QWidget):
         header.addWidget(subtitle)
         layout.addLayout(header)
 
+        # Przewijalna część środkowa — przycisk "Konwertuj" zawsze widoczny na dole.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(16)
+
         self.drop_list = DropList()
+        self.drop_list.setMaximumHeight(220)
         self.drop_list.filesDropped.connect(self.add_files)
-        layout.addWidget(self.drop_list)
+        content_layout.addWidget(self.drop_list)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -521,7 +414,7 @@ class MainWindow(QWidget):
         btn_row.addWidget(add_btn)
         btn_row.addWidget(clear_btn)
         btn_row.addStretch()
-        layout.addLayout(btn_row)
+        content_layout.addLayout(btn_row)
 
         self.stack = QStackedWidget()
         self.empty_page = QLabel("Dodaj pliki, aby zobaczyć opcje konwersji.")
@@ -532,7 +425,11 @@ class MainWindow(QWidget):
         self.stack.addWidget(self.empty_page)
         self.stack.addWidget(self.image_panel)
         self.stack.addWidget(self.video_panel)
-        layout.addWidget(self.stack)
+        content_layout.addWidget(self.stack)
+        content_layout.addStretch()
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(14)
@@ -568,7 +465,8 @@ class MainWindow(QWidget):
 
     def add_files(self, paths):
         for p in paths:
-            k = kind_of(p)
+            p = Path(p)
+            k = presets.kind_of(p)
             if k == "other":
                 self.log.appendPlainText(f"Pomijam (nieobsługiwany format): {p.name}")
                 continue
@@ -597,10 +495,12 @@ class MainWindow(QWidget):
 
     def start_conversion(self):
         self.log.clear()
-        if self.kind == "image":
-            jobs = self.image_panel.build_jobs()
-        else:
-            jobs = self.video_panel.build_jobs()
+        panel = self.image_panel if self.kind == "image" else self.video_panel
+        try:
+            jobs = panel.build_jobs()
+        except Exception as exc:
+            self.log.appendPlainText(f"Błąd przygotowania zadań: {exc}")
+            return
 
         if not jobs:
             self.log.appendPlainText("Brak plików do przetworzenia (sprawdź ustawienia / filtr formatów).")
@@ -611,7 +511,7 @@ class MainWindow(QWidget):
         self.progress.setMaximum(len(jobs))
         self.progress.setValue(0)
 
-        self.worker = ConvertWorker(self.kind, jobs)
+        self.worker = ConvertWorker(jobs)
         self.worker.log.connect(self.log.appendPlainText)
         self.worker.progress.connect(lambda cur, _total: self.progress.setValue(cur))
         self.worker.done.connect(self._on_done)
@@ -622,13 +522,15 @@ class MainWindow(QWidget):
         self.log.appendPlainText("=== Gotowe ===")
 
 
-def main():
-    app = QApplication(sys.argv)
+def main(files=None) -> int:
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE)
     win = MainWindow()
+    if files:
+        win.add_files([Path(f) for f in files])
     win.show()
-    sys.exit(app.exec_())
+    return app.exec_()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))
