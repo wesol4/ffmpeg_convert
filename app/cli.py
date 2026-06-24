@@ -101,6 +101,16 @@ def cmd_gui(a) -> int:
     return gui.main(a.files)
 
 
+def cmd_update(a) -> int:
+    from app import __version__
+    from app.update import check_for_updates
+    log = get_logger()
+    _, latest, msg = check_for_updates(__version__)
+    print(msg)
+    log.info("update check: latest=%s", latest)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ffmpeg-convert", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -140,6 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui", help="otwórz GUI z wczytanymi plikami")
     pg.add_argument("files", nargs="*")
     pg.set_defaults(func=cmd_gui)
+
+    pu = sub.add_parser("update", help="sprawdź dostępność nowej wersji")
+    pu.set_defaults(func=cmd_update)
 
     pspl = sub.add_parser("split", help="podział obrazu na siatkę X×Y")
     pspl.add_argument("--cols", type=int, required=True, help="liczba części w poziomie")

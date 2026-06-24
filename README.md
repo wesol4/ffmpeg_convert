@@ -23,6 +23,10 @@ więc dodanie lub zmiana presetu działa od razu wszędzie
 - **`app/log.py`** — logging diagnostyczny: dzienny plik
   `…/ffmpeg_convert/logs/YYYY-MM-DD.log` (`XDG_CACHE_HOME`/`Caches`/
   `%LOCALAPPDATA%`). UI-log (widget GUI / stdout CLI) nienaruszony.
+- **`app/update.py`** — sprawdzanie aktualizacji (GitHub `releases/latest`,
+  stdlib `urllib`); CLI `update`, GUI Pomoc → Sprawdź aktualizacje…
+  Wymaga opublikowanego release'u/tagu; bez cichego auto-pull (tylko powiadomienie).
+  Wersja: `app.__version__`.
 - **`app/runner.py`** — uruchamia zadania (subprocess, stream stderr,
   realny postęp, przechwyt błędów, sprzątanie).
 - **`app/cli.py`** — front-end wiersza poleceń

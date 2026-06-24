@@ -26,3 +26,17 @@ class ConvertWorker(QThread):
             on_percent=lambda frac: self.percent.emit(frac),
         )
         self.done.emit()
+
+
+class UpdateChecker(QThread):
+    """Sprawdza aktualizacje w tle (sieć) — GUI odbiera komunikat przez sygnał."""
+    result = pyqtSignal(str)
+
+    def __init__(self, current: str):
+        super().__init__()
+        self.current = current
+
+    def run(self):
+        from app.update import check_for_updates
+        _, _, msg = check_for_updates(self.current)
+        self.result.emit(msg)

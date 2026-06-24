@@ -6,15 +6,15 @@ from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidgetItem,
-    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QStackedWidget,
-    QVBoxLayout, QWidget,
+    QMenuBar, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from app import presets
 from app.gui_panels import ImagePanel, VideoPanel
 from app.gui_style import ICON
 from app.gui_widgets import DropList
-from app.gui_workers import ConvertWorker
+from app.gui_workers import ConvertWorker, UpdateChecker
 
 
 class MainWindow(QWidget):
@@ -29,10 +29,17 @@ class MainWindow(QWidget):
         self.files = []
         self.kind = None
         self.worker = None
+        self._update_checker = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(16)
+
+        # Menu Pomoc → Sprawdź aktualizacje… (bez cichego auto-pull).
+        menubar = QMenuBar()
+        help_menu = menubar.addMenu("Pomoc")
+        help_menu.addAction("Sprawdź aktualizacje…", self.check_updates)
+        layout.addWidget(menubar)
 
         header = QVBoxLayout()
         header.setSpacing(2)
@@ -195,3 +202,12 @@ class MainWindow(QWidget):
         self.convert_btn.setEnabled(True)
         self.progress.setValue(100)
         self.log.appendPlainText("=== Gotowe ===")
+
+    def check_updates(self):
+        from app import __version__
+        self._update_checker = UpdateChecker(__version__)
+        self._update_checker.result.connect(self._on_update_result)
+        self._update_checker.start()
+
+    def _on_update_result(self, msg):
+        QMessageBox.information(self, "Aktualizacje", msg)
