@@ -29,6 +29,27 @@ class TestKindOf(unittest.TestCase):
         self.assertEqual(presets.kind_of(Path("noext")), "other")
 
 
+class TestEnums(unittest.TestCase):
+    def test_video_preset_str_compat(self):
+        # str-Enum: równość ze stringiem i coerce z id.
+        self.assertEqual(presets.VideoPreset.H264, "h264")
+        self.assertIs(presets.VideoPreset("h264"), presets.VideoPreset.H264)
+
+    def test_video_preset_typo_raises(self):
+        with self.assertRaises(ValueError):
+            presets.VideoPreset("h246")  # literówka → ValueError, nie ciche pominięcie
+
+    def test_seq_format_str_compat(self):
+        self.assertEqual(presets.SeqFormat.PRORES, "prores")
+        self.assertIs(presets.SeqFormat("h265"), presets.SeqFormat.H265)
+
+    def test_build_accepts_enum_and_str(self):
+        src = Path("/tmp/x.mov")
+        jobs_str = presets.build_video_jobs("h264", [src])
+        jobs_enum = presets.build_video_jobs(presets.VideoPreset.H264, [src])
+        self.assertEqual(jobs_str[0].cmds[0], jobs_enum[0].cmds[0])
+
+
 class TestSimpleVideo(unittest.TestCase):
     def _job_cmd(self, jobs):
         self.assertEqual(len(jobs), 1)
@@ -72,8 +93,8 @@ class TestH264Size(unittest.TestCase):
 
     def test_size_mode_two_pass(self):
         src = Path("/tmp/v.mov")
-        with mock.patch.object(presets, "probe_duration", return_value=10.0), \
-             mock.patch.object(presets, "probe_has_audio", return_value=True):
+        with mock.patch("app.core.probe.probe_duration", return_value=10.0), \
+             mock.patch("app.core.probe.probe_has_audio", return_value=True):
             jobs = presets.build_video_jobs("h264size", [src],
                                             size_mode="size", target_mb=25)
         job = jobs[0]
@@ -94,8 +115,8 @@ class TestH264Size(unittest.TestCase):
 
     def test_size_mode_no_audio_no_audio_reserve(self):
         src = Path("/tmp/v.mov")
-        with mock.patch.object(presets, "probe_duration", return_value=10.0), \
-             mock.patch.object(presets, "probe_has_audio", return_value=False):
+        with mock.patch("app.core.probe.probe_duration", return_value=10.0), \
+             mock.patch("app.core.probe.probe_has_audio", return_value=False):
             jobs = presets.build_video_jobs("h264size", [src],
                                             size_mode="size", target_mb=25)
         job = jobs[0]
@@ -105,7 +126,7 @@ class TestH264Size(unittest.TestCase):
 
     def test_size_mode_falls_back_when_no_duration(self):
         src = Path("/tmp/v.mov")
-        with mock.patch.object(presets, "probe_duration", return_value=None):
+        with mock.patch("app.core.probe.probe_duration", return_value=None):
             jobs = presets.build_video_jobs("h264size", [src],
                                             size_mode="size", target_mb=25)
         self.assertEqual(len(jobs[0].cmds), 1)  # fallback CRF (1 przebieg)

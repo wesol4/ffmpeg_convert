@@ -18,16 +18,16 @@ import os
 import sys
 from pathlib import Path
 
-# Działaj zarówno jako moduł (python -m app.cli), jak i skrypt (python cli.py).
-if __package__:
-    from . import presets, runner
-else:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import presets
-    import runner
+# Działaj zarówno jako moduł (python -m app.cli), jak i skrypt
+# (python app/cli.py) — bootstrap dodaje rodzica app/ do sys.path, by
+# absolutne importy `from app import …` działały w obu trybach.
+_PARENT = Path(__file__).resolve().parents[1]
+if str(_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PARENT))
+from app import presets, runner  # noqa: E402
 
 
-def _existing(files):
+def _existing(files) -> list:
     out = [Path(f) for f in files if Path(f).is_file()]
     for f in files:
         if not Path(f).is_file():
@@ -96,10 +96,7 @@ def cmd_flipbook(a) -> int:
 
 def cmd_gui(a) -> int:
     # Przekaż pliki do GUI (te same receptury, pełna kontrola opcji).
-    if __package__:
-        from . import gui
-    else:
-        import gui
+    from app import gui
     return gui.main(a.files)
 
 
@@ -110,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pv = sub.add_parser("video", help="konwersja wideo")
     pv.add_argument("--preset", required=True,
-                    choices=[pid for pid, _ in presets.VIDEO_PRESETS])
+                    choices=[p.value for p in presets.VideoPreset])
     pv.add_argument("--crf", type=int, default=23, help="CRF dla presetu h264size (18–32)")
     pv.add_argument("--target-mb", type=float, default=None,
                     help="docelowy rozmiar MB dla h264size (2 przebiegi)")
@@ -130,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("seq", help="sekwencja obrazów → wideo")
     ps.add_argument("--fps", type=int, default=24)
-    ps.add_argument("--format", default="h264", choices=list(presets.SEQ_FORMATS))
+    ps.add_argument("--format", default="h264", choices=[f.value for f in presets.SeqFormat])
     ps.add_argument("files", nargs="+")
     ps.set_defaults(func=cmd_seq)
 

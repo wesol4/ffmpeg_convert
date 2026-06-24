@@ -18,12 +18,12 @@ from PyQt5.QtWidgets import (
     QStackedWidget, QVBoxLayout, QWidget,
 )
 
-if __package__:
-    from . import presets, runner
-else:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import presets
-    import runner
+# Działaj jako moduł (python -m app.gui) i jako skrypt (python app/gui.py,
+# pythonw …\app\gui.py z menu Windows) — bootstrap dodaje rodzica app/.
+_PARENT = Path(__file__).resolve().parents[1]
+if str(_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PARENT))
+from app import presets, runner  # noqa: E402
 
 ICON = {"image": "🖼", "video": "🎬"}
 
@@ -385,8 +385,8 @@ class VideoPanel(QWidget):
         self.crf_label.setText(f"CRF {value} — {hint}")
 
     def _toggle_option_boxes(self):
-        self.frames_box.setVisible(self.preset_buttons["frames"].isChecked())
-        self.size_box.setVisible(self.preset_buttons["h264size"].isChecked())
+        self.frames_box.setVisible(self.preset_buttons[presets.VideoPreset.FRAMES].isChecked())
+        self.size_box.setVisible(self.preset_buttons[presets.VideoPreset.H264SIZE].isChecked())
 
     def set_files(self, files):
         self.files = files

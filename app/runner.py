@@ -18,13 +18,16 @@ import shutil
 import subprocess
 from collections import deque
 from pathlib import Path
+from typing import Callable
+
+from app.core.jobs import Job
 
 _OUT_US = re.compile(r"out_time_us=(\d+)")
 _OUT_MS = re.compile(r"out_time_ms=(\d+)")        # legacy, wartość w mikrosekundach
 _OUT_T = re.compile(r"out_time=(\d+):(\d+):(\d+(?:\.\d+)?)")
 
 
-def _out_time_us(line: str):
+def _out_time_us(line: str) -> int | None:
     """Mikrosekundy osiągniętego czasu wyjściowego z linii postępu ffmpeg, lub None."""
     m = _OUT_US.search(line)
     if m:
@@ -39,7 +42,8 @@ def _out_time_us(line: str):
     return None
 
 
-def _run_cmd(cmd: list, on_percent=None, duration=None) -> None:
+def _run_cmd(cmd: list, on_percent: Callable[[float], None] | None = None,
+             duration: float | None = None) -> None:
     """Wykonaj jedną komendę; przy błędzie podnieś wyjątek z ogonem stderr.
 
     on_percent(frac) — frac w [0,1] postępu tej komendy (wymaga duration > 0
@@ -53,18 +57,20 @@ def _run_cmd(cmd: list, on_percent=None, duration=None) -> None:
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             text=True, bufsize=1)
-    last = deque(maxlen=5)
+    last: deque[str] = deque(maxlen=5)
+    stream = proc.stderr
     try:
-        for line in proc.stderr:
-            line = line.rstrip()
-            if line:
-                last.append(line)
-            us = _out_time_us(line)
-            if us is not None and duration and duration > 0 and on_percent:
-                on_percent(min(1.0, us / (duration * 1_000_000)))
+        if stream is not None:
+            for line in stream:
+                line = line.rstrip()
+                if line:
+                    last.append(line)
+                us = _out_time_us(line)
+                if us is not None and duration and duration > 0 and on_percent:
+                    on_percent(min(1.0, us / (duration * 1_000_000)))
     finally:
-        if proc.stderr:
-            proc.stderr.close()
+        if stream is not None:
+            stream.close()
     proc.wait()
     if on_percent:
         on_percent(1.0)  # ta komenda ukończona (nawet bez linii postępu)
@@ -72,7 +78,7 @@ def _run_cmd(cmd: list, on_percent=None, duration=None) -> None:
         raise RuntimeError(f"ffmpeg zwrócił kod {proc.returncode}:\n" + "\n".join(last))
 
 
-def run_job(job, on_percent=None) -> None:
+def run_job(job: Job, on_percent: Callable[[float], None] | None = None) -> None:
     """Wykonaj pojedynczy Job: mkdir → komendy (z postępem) → cleanup.
 
     on_percent(job_frac) — job_frac w [0,1] dla tego joba, mapowane z per-cmd
@@ -85,7 +91,7 @@ def run_job(job, on_percent=None) -> None:
         for i, cmd in enumerate(job.cmds):
             frac0, span = i / n, 1 / n
 
-            def cmd_cb(frac, frac0=frac0, span=span):
+            def cmd_cb(frac: float, frac0: float = frac0, span: float = span) -> None:
                 if on_percent:
                     on_percent(frac0 + span * frac)
 
@@ -99,7 +105,9 @@ def run_job(job, on_percent=None) -> None:
                 p.unlink(missing_ok=True)
 
 
-def run_jobs(jobs, on_log=None, on_progress=None, on_percent=None) -> int:
+def run_jobs(jobs: list, on_log: Callable[[str], None] | None = None,
+             on_progress: Callable[[int, int], None] | None = None,
+             on_percent: Callable[[float], None] | None = None) -> int:
     """Wykonaj listę Jobów. Zwraca liczbę zakończonych sukcesem.
 
     on_log(str)               — komunikaty (OK/BŁĄD) do logu UI/konsoli.
@@ -112,7 +120,7 @@ def run_jobs(jobs, on_log=None, on_progress=None, on_percent=None) -> int:
     for idx, job in enumerate(jobs, start=1):
         off, span = (idx - 1) / total, 1 / total
 
-        def job_cb(jfrac, off=off, span=span):
+        def job_cb(jfrac: float, off: float = off, span: float = span) -> None:
             if on_percent:
                 on_percent(off + span * jfrac)
 

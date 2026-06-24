@@ -1,0 +1,18 @@
+[tool.mypy]
+python_version = "3.12"
+packages = ["app"]
+# Pragmatyczne, nie --strict: wymuszamy adnotacje definicji i ostrzegamy na
+# return any / nieużywane ignore. Największy zwrot z Path/Job/VideoPreset/SeqFormat.
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = false
+# GUI (PyQt5) i CLI (argparse dynamiczny) są nietypowane — GUI do Sprintu 4,
+# CLI doregulujemy w Sprincie 2 (CI). Rdzeń (core/presets/runner) typujemy teraz.
+exclude = ["app/gui\\.py", "app/cli\\.py"]
+
+# PyQt5 nie ma stubów — ignorujemy brak importów.
+[[tool.mypy.overrides]]
+module = "PyQt5.*"
+ignore_missing_imports = true
