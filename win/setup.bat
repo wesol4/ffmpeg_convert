@@ -178,20 +178,29 @@ REM  Opcja 4 - rejestracja menu (REG_EXPAND_SZ - %USERPROFILE% rozwija sie
 REM  w locie; wideo przypiete do konkretnych rozszerzen, nie do kategorii video).
 REM ===========================================================================
 :ADD_MENU
+REM Usun stary, legacy wpis z ogolnej kategorii 'video' (z pierwotnego
+REM convert_menu.reg) - mial zepsuty MUIVerb (ellipsis ... czytany jako znaki
+REM azjatyckie) i wskazywal na niedzialajaca sciezke REG_SZ %USERPROFILE%.
+reg delete "HKCU\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo" /f >nul 2>&1
 for %%E in (mp4 mov mkv) do call :ADD_VIDEO %%E
 call :ADD_IMAGE
 echo [menu] dodano pozycje "Konwertuj ... (FFmpeg)" (.mp4/.mov/.mkv + obrazy).
 echo (Eksplorator moze wymagac restartu, aby pokazac nowe wpisy.)
 goto :eof
 
+REM Uwaga: nazwe w menu ustala nazwana wartosc "MUIVerb" (nie domyslna wartosc
+REM klucza) - MUIVerb nadpisuje wartosc domyslna. Stad /v "MUIVerb", nie /ve.
+REM Etykieta jest czystym ASCII ("...") - brak znakow narodowych eliminuje
+REM problemy z kodowaniem .bat/rejestru na systemach o roznych ustawieniach
+REM regionalnych (np. ellipsis ... dekodowany jako znaki azjatyckie).
 :ADD_VIDEO
-reg add "HKCU\Software\Classes\SystemFileAssociations\.%~1\shell\KonwertujWideo" /ve /d "Konwertuj wideo (FFmpeg)..." /f >nul
+reg add "HKCU\Software\Classes\SystemFileAssociations\.%~1\shell\KonwertujWideo" /v "MUIVerb" /d "Konwertuj wideo (FFmpeg)..." /f >nul
 reg add "HKCU\Software\Classes\SystemFileAssociations\.%~1\shell\KonwertujWideo" /v "Icon" /d "ffmpeg.exe" /f >nul
 reg add "HKCU\Software\Classes\SystemFileAssociations\.%~1\shell\KonwertujWideo\command" /ve /d "pythonw \"%%USERPROFILE%%\scripts\app\gui.py\" \"%%1\"" /t REG_EXPAND_SZ /f >nul
 goto :eof
 
 :ADD_IMAGE
-reg add "HKCU\Software\Classes\SystemFileAssociations\image\shell\KonwertujObraz" /ve /d "Konwertuj / kompresuj obraz (FFmpeg)..." /f >nul
+reg add "HKCU\Software\Classes\SystemFileAssociations\image\shell\KonwertujObraz" /v "MUIVerb" /d "Konwertuj / kompresuj obraz (FFmpeg)..." /f >nul
 reg add "HKCU\Software\Classes\SystemFileAssociations\image\shell\KonwertujObraz" /v "Icon" /d "ffmpeg.exe" /f >nul
 reg add "HKCU\Software\Classes\SystemFileAssociations\image\shell\KonwertujObraz\command" /ve /d "pythonw \"%%USERPROFILE%%\scripts\app\gui.py\" \"%%1\"" /t REG_EXPAND_SZ /f >nul
 goto :eof
@@ -202,6 +211,7 @@ REM ===========================================================================
 :REMOVE_MENU
 for %%E in (mp4 mov mkv) do reg delete "HKCU\Software\Classes\SystemFileAssociations\.%%E\shell\KonwertujWideo" /f >nul 2>&1
 reg delete "HKCU\Software\Classes\SystemFileAssociations\image\shell\KonwertujObraz" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\SystemFileAssociations\video\shell\KonwertujWideo" /f >nul 2>&1
 echo [menu] usunieto pozycje "Konwertuj ... (FFmpeg)".
 goto :eof
 
