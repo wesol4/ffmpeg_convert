@@ -87,33 +87,39 @@ python3 ~/git/ffmpeg_convert/app/gui.py
 
 ### Instalacja
 
-1. Zainstaluj **Python 3** (z dodaniem do PATH) i **PyQt5**:
-   `pip install PyQt5`. Upewnij się, że `ffmpeg.exe` jest w PATH
-   (po dodaniu do zmiennych środowiskowych wymagany jest restart,
-   żeby Eksplorator wczytał nowy PATH).
-2. Skopiuj folder `app\` do `%USERPROFILE%\scripts\app\`
-   (czyli `C:\Users\<TwojaNazwa>\scripts\app\`).
-3. Uruchom **`win\install.bat`** — rejestruje pozycje menu z typem
-   `REG_EXPAND_SZ`, więc `%USERPROFILE%` rozwija się dla każdego
-   użytkownika bez edycji skryptu. Wideo przypinane jest do konkretnych
-   rozszerzeń (`.mp4` / `.mov` / `.mkv`), a nie do ogólnej kategorii
-   `video` (tej bywa wypinanej przez zewnętrzne odtwarzacze).
-4. Kliknij prawym na plik wideo lub obraz → **Konwertuj … (FFmpeg)…**
-   — otworzy się GUI. (Eksplorator może wymagać restartu, aby pokazać
-   nowe wpisy.)
+Uruchom **`win\setup.bat`** (dwukrotne kliknięcie, działa na „gołym”
+Windowsie 11, bez wymagań wstępnych). Menu instalatora:
 
-Odinstalowanie: `win\uninstall.bat`.
+- **1) Sprawdź zależności** — raport: Python, PyQt5, ffmpeg
+  (obecne / brak).
+- **2) Zainstaluj brakujące** — najpierw `winget`, a gdy go brak lub
+  zawiedzie — fallback na ręczne pobranie (`curl`) i instalację.
+  Instaluje Pythona (per-user, z dopisaniem do PATH), `pip install
+  PyQt5` oraz ffmpeg (rozpakowanie zip + dopisanie `bin` do user PATH).
+  Wszystko bez uprawnień administratora.
+- **3) Skopiuj `app\`** — do `%USERPROFILE%\scripts\app\`
+  (źródłem jest folder `app\` z repo, obok `win\`).
+- **4) Dodaj menu kontekstowe** — rejestruje pozycje z typem
+  `REG_EXPAND_SZ`, więc `%USERPROFILE%` rozwija się w locie dla każdego
+  użytkownika. Wideo przypinane jest do konkretnych rozszerzeń
+  (`.mp4` / `.mov` / `.mkv`), a nie do ogólnej kategorii `video`
+  (tej bywa wypinanej przez zewnętrzne odtwarzacze).
+- **5) Usuń menu kontekstowe** — odwraca wpisy z punktu 4.
 
-> Uwaga techniczna: nie używamy pliku `.reg` do dwukliku, bo klasyczne
+Na czystym systemie: wybierz kolejno **2 → 3 → 4**, po czym kliknij
+prawym na plik wideo lub obraz → **Konwertuj … (FFmpeg)…** (Eksplorator
+może wymagać restartu / wylogowania, aby zobaczyć nowy PATH i menu).
+
+> Uwaga techniczna: instalatorem jest `.bat`, a nie `.reg`, bo klasyczne
 > wartości `REG_SZ` nie rozwijają zmiennych środowiskowych — system
-> szukałby dosłownie folderu `%USERPROFILE%`. `install.bat` używa
+> szukałby dosłownie folderu `%USERPROFILE%`. `setup.bat` używa
 > `REG_EXPAND_SZ`, co rozwiązuje ten problem.
 
 ### Aktualizacja
 
-Nadpisz folder `scripts\app\` nową wersją z repozytorium
-(`install.bat` ponawiać nie trzeba — wpisy rejestru wskazują na ten
-sam folder).
+Nadpisz folder `scripts\app\` nową wersją z repozytorium, po czym w
+`win\setup.bat` wybierz ponownie **3** (i ewentualnie **4** — wpisy
+rejestru wskazują na ten sam folder, więc zwykle nie trzeba).
 
 ---
 
