@@ -14,15 +14,17 @@ pakiecie `app/` w Pythonie. Korzystają z niej wszystkie front-endy,
 więc dodanie lub zmiana presetu działa od razu wszędzie
 (Linux, Windows, GUI, CLI).
 
-- **`app/presets.py`** — jedyne źródło prawdy. Buduje komendy FFmpeg
-  dla każdego presetu (wideo, obrazy, sekwencja klatek → wideo).
-- **`app/runner.py`** — uruchamia zadania (subprocess, przechwyt
-  błędów, sprzątanie plików tymczasowych).
+- **`app/presets/`** — jedyne źródło prawdy. Pakiet: `video.py`,
+  `image.py`, `sequence.py` budują komendy FFmpeg; `core/` (`jobs`,
+  `ffmpeg`, `probe`) trzyma model `Job`, stałe i detekcję.
+- **`app/runner.py`** — uruchamia zadania (subprocess, stream stderr,
+  realny postęp, przechwyt błędów, sprzątanie).
 - **`app/cli.py`** — front-end wiersza poleceń
-  (`video` / `image` / `seq` / `gui`). Wołany przez menu Nemo
-  i Eksploratora.
-- **`app/gui.py`** — GUI PyQt5 z drag & drop. Importuje `presets`
-  + `runner`.
+  (`video` / `image` / `seq` / `split` / `flipbook` / `gui`).
+- **`app/gui.py`** — entry-point GUI (uruchamialny jako skrypt:
+  `python app/gui.py` / `pythonw …\app\gui.py` z menu Windows).
+  Interfejs rozbity na `app/gui_*.py`: `gui_main_window`, `gui_panels`,
+  `gui_widgets`, `gui_workers`, `gui_style`.
 
 ### Przykłady CLI
 

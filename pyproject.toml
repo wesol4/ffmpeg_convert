@@ -18,9 +18,9 @@ warn_return_any = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = false
-# GUI (PyQt5) i CLI (argparse dynamiczny) są nietypowane — GUI do Sprintu 4,
-# CLI doregulujemy w Sprincie 2 (CI). Rdzeń (core/presets/runner) typujemy teraz.
-exclude = ["app/gui\\.py", "app/cli\\.py"]
+# GUI (PyQt5) i CLI (argparse dynamiczny) są nietypowane — moduły gui_*.py
+# (podział Sprintu 4) i cli.py wyłączamy; rdzeń (core/presets/runner) typujemy.
+exclude = ["app/gui.*\\.py", "app/cli\\.py"]
 
 # PyQt5 nie ma stubów — ignorujemy brak importów.
 [[tool.mypy.overrides]]
