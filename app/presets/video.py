@@ -11,6 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
+from app.config import CONFIG
 from app.core import probe
 from app.core.ffmpeg import FFMPEG, Encoder
 from app.core.jobs import Job
@@ -23,39 +24,35 @@ class _SimpleSpec(TypedDict):
     args: list
 
 
-# Domyślna jakość (CRF / CQ — wspólna skala 0–51) dla prostych presetów.
-_H264_QUALITY = 18
-_H265_QUALITY = 23
-
-
 def _encoder_codec_vargs(preset: "VideoPreset", encoder: "Encoder | str",
                          quality: int) -> tuple:
     """Zwraca (codec, vargs) dla H.264/H.265 z danym enkoderem i jakością.
 
     quality — wspólna skala CRF/CQ (niższa = lepsza). Dla CPU to libx264/libx265
     z -crf; dla GPU odpowiednik stałej jakości (-cq NVENC, -global_quality QSV,
-    -rc cqp -qp AMF). vargs NIE zawiera -c:v (dodaje wołający).
+    -rc cqp -qp AMF). vargs NIE zawiera -c:v (dodaje wołający). Tunable w CONFIG.
     """
     encoder = Encoder(encoder)
     hevc = preset == VideoPreset.H265
+    cfg = CONFIG.h265 if hevc else CONFIG.h264
     if encoder == Encoder.CPU:
         codec = "libx265" if hevc else "libx264"
-        preset_name = "medium" if hevc else "slow"
-        return codec, ["-crf", str(quality), "-preset", preset_name, "-pix_fmt", "yuv420p"]
+        return codec, ["-crf", str(quality), "-preset", cfg.preset, "-pix_fmt", cfg.pix_fmt]
     if encoder == Encoder.NVENC:
         codec = "hevc_nvenc" if hevc else "h264_nvenc"
-        return codec, ["-preset", "p4", "-tune", "hq", "-rc", "vbr",
-                       "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p"]
+        return codec, ["-preset", CONFIG.encoder.nvenc_preset, "-tune", CONFIG.encoder.nvenc_tune,
+                       "-rc", "vbr", "-cq", str(quality), "-b:v", "0",
+                       "-pix_fmt", CONFIG.encoder.pix_fmt]
     if encoder == Encoder.QSV:
         codec = "hevc_qsv" if hevc else "h264_qsv"
         # QSV zarządza pix_fmt sam; -global_quality to ICQ (skala jak CRF).
-        return codec, ["-preset", "veryslow", "-look_ahead", "0",
+        return codec, ["-preset", CONFIG.encoder.qsv_preset, "-look_ahead", "0",
                        "-global_quality", str(quality)]
     if encoder == Encoder.AMF:
         codec = "hevc_amf" if hevc else "h264_amf"
-        return codec, ["-quality", "quality", "-rc", "cqp",
+        return codec, ["-quality", CONFIG.encoder.amf_quality, "-rc", "cqp",
                        "-qp_i", str(quality), "-qp_p", str(quality),
-                       "-b:v", "0", "-pix_fmt", "yuv420p"]
+                       "-b:v", "0", "-pix_fmt", CONFIG.encoder.pix_fmt]
     raise ValueError(f"Nieznany enkoder: {encoder}")
 
 
@@ -152,16 +149,17 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     enc_tag = "" if encoder == Encoder.CPU else f" [{encoder.value.upper()}]"
 
     def crf_fallback(reason: str) -> Job:
-        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-crf", "23",
-               "-preset", "slow", "-pix_fmt", "yuv420p",
-               "-c:a", "aac", "-b:a", "192k", str(out_path)]
+        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264",
+               "-crf", str(CONFIG.h264size.crf_default), "-preset", CONFIG.h264.preset,
+               "-pix_fmt", CONFIG.h264.pix_fmt,
+               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
         return Job(label=f"{src.name} → {rel} ({reason})", cmds=[cmd],
                    mkdir=out_dir, duration=dur)
 
     if size_mode == "crf":
         codec, vargs = _encoder_codec_vargs(VideoPreset.H264, encoder, crf)
         cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
-               "-c:a", "aac", "-b:a", "192k", str(out_path)]
+               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
         return Job(label=f"{src.name} → {rel} (CRF {crf}{enc_tag})", cmds=[cmd],
                    mkdir=out_dir, duration=dur)
 
@@ -170,7 +168,7 @@ def _h264_size_job(src: Path, base: str, batch: bool,
         return crf_fallback("nie odczytano długości — CRF 23")
 
     has_audio = probe.probe_has_audio(src)
-    audio_k = 128 if has_audio else 0
+    audio_k = CONFIG.audio.twopass_audio_k if has_audio else 0
     total_k = (target_mb * 8192) / dur  # MB → kbit/s całości
     video_k = max(50, int(total_k - audio_k))
     passlog = str(out_dir / f"{base}_ffmpeg2pass")
@@ -181,7 +179,7 @@ def _h264_size_job(src: Path, base: str, batch: bool,
              "-preset", "slow", "-pix_fmt", "yuv420p", "-pass", "2",
              "-passlogfile", passlog]
     if has_audio:
-        pass2 += ["-c:a", "aac", "-b:a", f"{audio_k}k"]
+        pass2 += ["-c:a", CONFIG.audio.codec, "-b:a", f"{audio_k}k"]
     pass2.append(str(out_path))
     return Job(
         label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo, CPU 2-pass)",
@@ -228,10 +226,10 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
             spec = SIMPLE_VIDEO[preset]  # suffix/ext/label
             out_dir = _out_dir(src, spec["suffix"], batch)
             out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
-            quality = _H264_QUALITY if preset == VideoPreset.H264 else _H265_QUALITY
+            quality = CONFIG.h264.crf if preset == VideoPreset.H264 else CONFIG.h265.crf
             codec, vargs = _encoder_codec_vargs(preset, encoder, quality)
             cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
-                   "-c:a", "aac", "-b:a", "192k", str(out_path)]
+                   "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
             jobs.append(Job(
                 label=f"{src.name} → {out_path.relative_to(src.parent)}{enc_tag}",
                 cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),

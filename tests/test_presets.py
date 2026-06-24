@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import presets  # noqa: E402
+from app.config import Config, H264Config  # noqa: E402
 
 
 class TestKindOf(unittest.TestCase):
@@ -151,6 +152,34 @@ class TestProbeEncoders(unittest.TestCase):
         with mock.patch("app.core.probe.subprocess.run", side_effect=RuntimeError):
             avail = presets.probe_encoders()
         self.assertEqual(avail, {presets.Encoder.CPU})
+
+
+class TestConfig(unittest.TestCase):
+    def test_defaults_match_historical_values(self):
+        cfg = presets.CONFIG
+        self.assertEqual(cfg.h264.crf, 18)
+        self.assertEqual(cfg.h265.crf, 23)
+        self.assertEqual(cfg.audio.bitrate, "192k")
+        self.assertEqual(cfg.audio.twopass_audio_k, 128)
+        self.assertEqual(cfg.encoder.nvenc_preset, "p4")
+        self.assertEqual(cfg.h264size.crf_default, 23)
+        self.assertEqual(cfg.h264size.crf_min, 18)
+        self.assertEqual(cfg.h264size.crf_max, 32)
+        self.assertEqual(cfg.h264size.target_mb_default, 25)
+        self.assertEqual(cfg.image.scale_snaps, [10, 25, 50, 75, 90, 100])
+        self.assertEqual(cfg.image.scale_default, 50)
+        self.assertEqual(cfg.seq.default_fps, 24)
+
+    def test_config_drives_recipes(self):
+        # Dowód sprzężenia: podmiana CONFIG w video.py zmienia wygenerowaną komendę.
+        custom = Config(h264=H264Config(crf=20))
+        with mock.patch("app.presets.video.CONFIG", custom):
+            cmd = presets.build_video_jobs("h264", [Path("/d/x.mov")])[0].cmds[0]
+        self.assertEqual(cmd[cmd.index("-crf") + 1], "20")
+
+    def test_config_is_frozen(self):
+        with self.assertRaises(Exception):
+            presets.CONFIG.h264.crf = 99  # type: ignore[misc]
 
 
 class TestSimpleVideo(unittest.TestCase):

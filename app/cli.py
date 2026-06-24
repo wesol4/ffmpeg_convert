@@ -48,7 +48,7 @@ def cmd_video(a) -> int:
     files = _existing(a.files)
     jobs = presets.build_video_jobs(
         a.preset, files, size_mode=("size" if a.target_mb else "crf"),
-        crf=a.crf, target_mb=(a.target_mb or 25),
+        crf=a.crf, target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default),
         frames_format=a.frames_format, frames_with_wav=not a.no_wav,
         encoder=a.encoder,
     )
@@ -108,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
     pv = sub.add_parser("video", help="konwersja wideo")
     pv.add_argument("--preset", required=True,
                     choices=[p.value for p in presets.VideoPreset])
-    pv.add_argument("--crf", type=int, default=23, help="CRF dla presetu h264size (18–32)")
+    pv.add_argument("--crf", type=int, default=presets.CONFIG.h264size.crf_default,
+                    help="CRF dla presetu h264size (18–32)")
     pv.add_argument("--target-mb", type=float, default=None,
                     help="docelowy rozmiar MB dla h264size (2 przebiegi)")
     pv.add_argument("--frames-format", default="png", choices=["png", "jpg", "exr"])
@@ -128,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     pi.set_defaults(func=cmd_image)
 
     ps = sub.add_parser("seq", help="sekwencja obrazów → wideo")
-    ps.add_argument("--fps", type=int, default=24)
+    ps.add_argument("--fps", type=int, default=presets.CONFIG.seq.default_fps)
     ps.add_argument("--format", default="h264", choices=[f.value for f in presets.SeqFormat])
     ps.add_argument("--encoder", default="cpu", choices=[e.value for e in presets.Encoder],
                     help="enkoder dla h264/h265: cpu / nvenc / qsv / amf")

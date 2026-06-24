@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from app.config import CONFIG
 from app.core import probe
 from app.core.ffmpeg import FFMPEG, kind_of
 from app.core.jobs import Job
@@ -17,7 +18,7 @@ IMAGE_QUALITY = {2: "Q2 (~94%, najlepsza)", 5: "Q5 (~85%, dobra)",
 
 def image_target_name(path: Path, idx: int, newname: str, keep: bool) -> tuple:
     base = f"{newname}_{idx:03d}" if newname else path.stem
-    ext = path.suffix.lstrip(".") if keep else "jpg"
+    ext = path.suffix.lstrip(".") if keep else CONFIG.image.jpg_ext
     return base, ext
 
 
@@ -52,7 +53,7 @@ def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = Fa
             continue
         idx += 1
         base, ext = image_target_name(path, idx, newname, keep)
-        out_dir = (path.parent / "compressed") if subdir else path.parent
+        out_dir = (path.parent / CONFIG.image.compressed_subdir) if subdir else path.parent
         out_path = out_dir / f"{base}.{ext}"
         if out_path.resolve() == path.resolve():
             continue  # nie nadpisuj oryginału
@@ -85,7 +86,7 @@ def build_split_jobs(files: list, *, cols: int, rows: int, subdir: bool = True) 
             continue  # ffprobe nie odczytał wymiarów — pomijamy
         w, h = size
         tw, th = w // cols, h // rows
-        out_dir = (path.parent / "SplitGrid") if subdir else path.parent
+        out_dir = (path.parent / CONFIG.image.split_subdir) if subdir else path.parent
         cmds = []
         for y in range(rows):
             for x in range(cols):

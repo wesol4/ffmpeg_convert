@@ -12,6 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TypedDict
 
+from app.config import CONFIG
 from app.core import probe
 from app.core.ffmpeg import FFMPEG, Encoder
 from app.core.jobs import Job
@@ -107,7 +108,7 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
     # vargs: dla h264/h265 honoruj enkoder; prores/dnxhd — CPU z SEQ_FORMATS.
     if fmt in (SeqFormat.H264, SeqFormat.H265) and encoder != Encoder.CPU:
         vpreset = VideoPreset.H264 if fmt == SeqFormat.H264 else VideoPreset.H265
-        quality = 18 if fmt == SeqFormat.H264 else 23
+        quality = CONFIG.h264.crf if fmt == SeqFormat.H264 else CONFIG.h265.crf
         codec, vargs = _encoder_codec_vargs(vpreset, encoder, quality)
         cmd += ["-c:v", codec, *vargs, str(out_path)]
         enc_tag = f" [{encoder.value.upper()}]"

@@ -17,6 +17,9 @@ więc dodanie lub zmiana presetu działa od razu wszędzie
 - **`app/presets/`** — jedyne źródło prawdy. Pakiet: `video.py`,
   `image.py`, `sequence.py` budują komendy FFmpeg; `core/` (`jobs`,
   `ffmpeg`, `probe`) trzyma model `Job`, stałe i detekcję.
+- **`app/config.py`** — typowana konfiguracja (frozen dataclass `CONFIG`):
+  CRF, preset, pix_fmt, audio bitrate, enkodery, zakres h264size, skala
+  obrazów, fps. Tunable w jednym miejscu; presety/CLI/GUI czytają z `CONFIG`.
 - **`app/runner.py`** — uruchamia zadania (subprocess, stream stderr,
   realny postęp, przechwyt błędów, sprzątanie).
 - **`app/cli.py`** — front-end wiersza poleceń

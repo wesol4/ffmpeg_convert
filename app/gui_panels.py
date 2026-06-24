@@ -17,7 +17,7 @@ from app import presets
 class ImagePanel(QWidget):
     # Wartości, do których „przyciąga" suwak skali (procent oryginału).
     # Suwak kończy na 100% — większe wartości można wpisać ręcznie w polu.
-    SNAP = [10, 25, 50, 75, 90, 100]
+    SNAP = presets.CONFIG.image.scale_snaps
 
     def __init__(self):
         super().__init__()
@@ -70,7 +70,7 @@ class ImagePanel(QWidget):
         row.addWidget(self.scale_chk)
         self.scale_pct = QSpinBox()
         self.scale_pct.setRange(1, 800)
-        self.scale_pct.setValue(50)
+        self.scale_pct.setValue(presets.CONFIG.image.scale_default)
         self.scale_pct.setSuffix(" %")
         self.scale_pct.valueChanged.connect(self._on_scale_spin)
         row.addWidget(self.scale_pct)
@@ -82,7 +82,7 @@ class ImagePanel(QWidget):
         # listy SNAP, więc każdy „klik" ląduje dokładnie na jednej z nich.
         self.scale_slider = QSlider(Qt.Horizontal)
         self.scale_slider.setRange(0, len(self.SNAP) - 1)
-        self.scale_slider.setValue(self._snap_index(50))
+        self.scale_slider.setValue(self._snap_index(presets.CONFIG.image.scale_default))
         self.scale_slider.setTickPosition(QSlider.TicksBelow)
         self.scale_slider.setTickInterval(1)
         self.scale_slider.setSingleStep(1)
@@ -217,8 +217,8 @@ class VideoPanel(QWidget):
         crf_row = QHBoxLayout()
         crf_row.addSpacing(28)
         self.crf_slider = QSlider(Qt.Horizontal)
-        self.crf_slider.setRange(18, 32)
-        self.crf_slider.setValue(23)
+        self.crf_slider.setRange(presets.CONFIG.h264size.crf_min, presets.CONFIG.h264size.crf_max)
+        self.crf_slider.setValue(presets.CONFIG.h264size.crf_default)
         self.crf_label = QLabel()
         self.crf_label.setMinimumWidth(150)
         self.crf_slider.valueChanged.connect(self._update_crf_label)
@@ -236,7 +236,7 @@ class VideoPanel(QWidget):
         target_row.addWidget(QLabel("Rozmiar:"))
         self.target_mb = QSpinBox()
         self.target_mb.setRange(1, 100000)
-        self.target_mb.setValue(25)
+        self.target_mb.setValue(presets.CONFIG.h264size.target_mb_default)
         self.target_mb.setSuffix(" MB")
         target_row.addWidget(self.target_mb)
         target_row.addStretch()
