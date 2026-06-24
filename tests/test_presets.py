@@ -1,0 +1,227 @@
+"""Testy jednostkowe dla app/presets.py (komendy jako listy argumentów).
+
+Uruchomienie z repo:  python3 -m unittest discover -s tests -v
+"""
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+# Repo root na sys.path, by `from app import …` działał niezależnie od CWD.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app import presets  # noqa: E402
+
+
+class TestKindOf(unittest.TestCase):
+    def test_image_exts(self):
+        for ext in (".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".webp"):
+            self.assertEqual(presets.kind_of(Path(f"a{ext}")), "image")
+
+    def test_video_exts(self):
+        for ext in (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"):
+            self.assertEqual(presets.kind_of(Path(f"a{ext}")), "video")
+
+    def test_other(self):
+        self.assertEqual(presets.kind_of(Path("a.txt")), "other")
+        self.assertEqual(presets.kind_of(Path("noext")), "other")
+
+
+class TestSimpleVideo(unittest.TestCase):
+    def _job_cmd(self, jobs):
+        self.assertEqual(len(jobs), 1)
+        return jobs[0].cmds[0]
+
+    def test_h264_single(self):
+        src = Path("/tmp/movie.mov")
+        jobs = presets.build_video_jobs("h264", [src])
+        cmd = self._job_cmd(jobs)
+        expected = [presets.FFMPEG, "-y", "-i", str(src),
+                    "-c:v", "libx264", "-crf", "18", "-preset", "slow",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                    str(src.parent / "movie_H264.mp4")]
+        self.assertEqual(cmd, expected)
+
+    def test_h265_batch_writes_to_subfolder(self):
+        a, b = Path("/d/a.mov"), Path("/d/b.mov")
+        jobs = presets.build_video_jobs("h265", [a, b])
+        # batch (>1) → podfolder HEVC obok źródła
+        for j, src in zip(jobs, (a, b)):
+            out = src.parent / "HEVC" / f"{src.stem}_HEVC.mp4"
+            self.assertEqual(j.cmds[0][-1], str(out))
+            self.assertEqual(j.mkdir, src.parent / "HEVC")
+
+    def test_prores_and_cineform_codecs(self):
+        for pid, codec in (("prores", "prores_ks"), ("cineform", "cfhd")):
+            jobs = presets.build_video_jobs(pid, [Path("/d/x.mov")])
+            self.assertIn(codec, jobs[0].cmds[0])
+
+
+class TestH264Size(unittest.TestCase):
+    def test_crf_mode(self):
+        src = Path("/tmp/v.mov")
+        jobs = presets.build_video_jobs("h264size", [src],
+                                        size_mode="crf", crf=20)
+        cmd = jobs[0].cmds[0]
+        self.assertEqual(len(jobs[0].cmds), 1)
+        self.assertIn("-crf", cmd)
+        self.assertEqual(cmd[cmd.index("-crf") + 1], "20")
+        self.assertIn("CRF 20", jobs[0].label)
+
+    def test_size_mode_two_pass(self):
+        src = Path("/tmp/v.mov")
+        with mock.patch.object(presets, "probe_duration", return_value=10.0):
+            jobs = presets.build_video_jobs("h264size", [src],
+                                            size_mode="size", target_mb=25)
+        job = jobs[0]
+        self.assertEqual(len(job.cmds), 2)  # pass1, pass2
+        self.assertIn("-pass", job.cmds[0])
+        self.assertEqual(job.cmds[0][job.cmds[0].index("-pass") + 1], "1")
+        self.assertEqual(job.cmds[1][job.cmds[1].index("-pass") + 1], "2")
+        self.assertIn("-an", job.cmds[0])  # pass1 bez audio
+        self.assertIn(os.devnull, job.cmds[0])  # wyjście pass1 → null
+        # bitrate wideo = max(50, 25*8192/10 - 128) = 20352
+        self.assertIn("20352k", job.cmds[0])
+        # cleanup logi 2-pass
+        cleanup_names = [Path(p).name for p in job.cleanup]
+        self.assertTrue(any("ffmpeg2pass" in n for n in cleanup_names))
+
+    def test_size_mode_falls_back_when_no_duration(self):
+        src = Path("/tmp/v.mov")
+        with mock.patch.object(presets, "probe_duration", return_value=None):
+            jobs = presets.build_video_jobs("h264size", [src],
+                                            size_mode="size", target_mb=25)
+        self.assertEqual(len(jobs[0].cmds), 1)  # fallback CRF (1 przebieg)
+        self.assertIn("-crf", jobs[0].cmds[0])
+
+
+class TestSpecialVideo(unittest.TestCase):
+    def test_last_frame(self):
+        src = Path("/d/clip.mov")
+        jobs = presets.build_video_jobs("last_frame", [src])
+        cmd = jobs[0].cmds[0]
+        self.assertEqual(cmd[:4], [presets.FFMPEG, "-y", "-sseof", "-1"])
+        self.assertEqual(cmd[-1], str(src.parent / "clip_last.png"))
+
+    def test_frames_with_wav(self):
+        src = Path("/d/clip.mov")
+        jobs = presets.build_video_jobs("frames", [src],
+                                        frames_format="png",
+                                        frames_with_wav=True)
+        self.assertEqual(len(jobs[0].cmds), 2)  # klatki + wav
+        self.assertIn("-fps_mode", jobs[0].cmds[0])
+        self.assertTrue(jobs[0].cmds[0][-1].endswith("clip_%04d.png"))
+        self.assertIn("pcm_s24le", jobs[0].cmds[1])
+
+    def test_frames_no_wav(self):
+        src = Path("/d/clip.mov")
+        jobs = presets.build_video_jobs("frames", [src],
+                                        frames_with_wav=False)
+        self.assertEqual(len(jobs[0].cmds), 1)
+
+    def test_unknown_preset_raises(self):
+        with self.assertRaises(ValueError):
+            presets.build_video_jobs("nope", [Path("/d/x.mov")])
+
+
+class TestImages(unittest.TestCase):
+    def test_compress_default(self):
+        p = Path("/d/a.png")
+        jobs = presets.build_image_jobs([p], quality=2, subdir=True)
+        cmd = jobs[0].cmds[0]
+        self.assertIn("-q:v", cmd)
+        self.assertEqual(cmd[cmd.index("-q:v") + 1], "2")
+        self.assertEqual(cmd[cmd.index("-vf") + 1], "format=yuvj420p")
+        self.assertEqual(cmd[-1], str(p.parent / "compressed" / "a.jpg"))
+
+    def test_keep_copies(self):
+        p = Path("/d/a.png")
+        jobs = presets.build_image_jobs([p], keep=True, subdir=True)
+        self.assertEqual(jobs[0].cmds[0][0], "__copy__")
+        # zachowaj oryginalne rozszerzenie
+        self.assertTrue(jobs[0].cmds[0][2].endswith("a.png"))
+
+    def test_scale_filter_in_vf(self):
+        p = Path("/d/a.png")
+        jobs = presets.build_image_jobs([p], quality=5, scale_pct=50)
+        vf = jobs[0].cmds[0][jobs[0].cmds[0].index("-vf") + 1]
+        self.assertIn("scale=trunc(iw*0.5/2)*2", vf)
+        self.assertIn("format=yuvj420p", vf)
+
+    def test_rename_numbering(self):
+        files = [Path("/d/x.png"), Path("/d/y.png")]
+        jobs = presets.build_image_jobs(files, quality=2, newname="render")
+        self.assertTrue(jobs[0].cmds[0][-1].endswith("render_001.jpg"))
+        self.assertTrue(jobs[1].cmds[0][-1].endswith("render_002.jpg"))
+
+    def test_skip_non_image(self):
+        jobs = presets.build_image_jobs([Path("/d/a.txt"), Path("/d/a.png")])
+        self.assertEqual(len(jobs), 1)
+
+    def test_skip_overwrite_original(self):
+        # keep + obok + bez zmiany nazwy → cel == źródło → pomijamy
+        p = Path("/d/a.png")
+        jobs = presets.build_image_jobs([p], keep=True, subdir=False)
+        self.assertEqual(len(jobs), 0)
+
+
+class TestImageHelpers(unittest.TestCase):
+    def test_image_target_name(self):
+        self.assertEqual(
+            presets.image_target_name(Path("a.png"), 5, "r", False), ("r_005", "jpg"))
+        self.assertEqual(
+            presets.image_target_name(Path("a.png"), 5, "r", True), ("r_005", "png"))
+        self.assertEqual(
+            presets.image_target_name(Path("foo.tif"), 1, "", True), ("foo", "tif"))
+
+    def test_scale_filter(self):
+        self.assertIsNone(presets._scale_filter(None))
+        self.assertIsNone(presets._scale_filter(100))
+        self.assertEqual(
+            presets._scale_filter(50), "scale=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2")
+        self.assertEqual(
+            presets._scale_filter(200), "scale=trunc(iw*2.0/2)*2:trunc(ih*2.0/2)*2")
+
+
+class TestSeq(unittest.TestCase):
+    def test_natural_sort(self):
+        names = ["frame_10.png", "frame_2.png", "frame_1.png"]
+        ordered = sorted(names, key=presets._natural_key)
+        self.assertEqual(ordered, ["frame_1.png", "frame_2.png", "frame_10.png"])
+
+    def test_build_seq_job_cmd_and_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            # puste pliki wystarczą (symlinki nie wymagają istnienia źródła)
+            for n in ("frame_2.png", "frame_10.png", "frame_1.png"):
+                (d / n).touch()
+            # audio o nazwie folderu
+            (d / f"{d.name}.wav").touch()
+            files = [str(d / "frame_2.png"), str(d / "frame_10.png"),
+                     str(d / "frame_1.png")]
+            job = presets.build_seq_job(files, fps=24, fmt="h264")
+            cmd = job.cmds[0]
+            self.assertIn("-framerate", cmd)
+            self.assertEqual(cmd[cmd.index("-framerate") + 1], "24")
+            self.assertIn("seq_%05d.png", cmd[cmd.index("-i") + 1])
+            self.assertIn("-shortest", cmd)  # audio doklejone
+            self.assertTrue(job.label.startswith("3 klatek @ 24 fps"))
+            self.assertEqual(len(job.cleanup), 1)  # katalog tymczasowy
+
+    def test_build_seq_job_no_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "f_1.png").touch()
+            job = presets.build_seq_job([str(d / "f_1.png")], fps=30, fmt="prores")
+            self.assertNotIn("-shortest", job.cmds[0])
+            self.assertTrue(job.cmds[0][-1].endswith(f"{d.name}.mov"))
+
+    def test_unknown_seq_format_raises(self):
+        with self.assertRaises(ValueError):
+            presets.build_seq_job([Path("/d/a.png")], fmt="nope")
+
+
+if __name__ == "__main__":
+    unittest.main()

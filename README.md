@@ -123,6 +123,17 @@ rejestru wskazują na ten sam folder, więc zwykle nie trzeba).
 
 ---
 
+## Testy
+
+Testy rdzeniu (`app/presets.py`, `app/runner.py`) w `tests/` — `unittest`
+(stdlib, bez zależności); `runner` testowany na realnym `ffmpeg`.
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+---
+
 ## Presety wideo
 
 - **MP4 H.264 (CRF 18)** — wysoka jakość, dobra kompatybilność.
