@@ -20,6 +20,7 @@ if str(_PARENT) not in sys.path:
 
 from app import presets  # noqa: E402
 from app.gui_main_window import MainWindow  # noqa: E402
+from app.log import get_logger, setup_logging  # noqa: E402
 from app.gui_panels import ImagePanel, VideoPanel  # noqa: E402
 from app.gui_style import APP_STYLE, ICON  # noqa: E402
 from app.gui_widgets import DropList  # noqa: E402
@@ -32,16 +33,20 @@ __all__ = ["main", "MainWindow", "ImagePanel", "VideoPanel", "DropList",
 
 
 def main(files=None) -> int:
+    setup_logging()
+    log = get_logger()
     # Guard na przestarzałą kopię app/: stary, płaski presets.py (sprzed
     # refaktoru pakietowego) przykrywa nowy pakiet app/presets/ — wtedy brakuje
     # presets.VideoPreset i GUI cicho traci m.in. suwak h264size. Wybij się
     # czytelnym komunikatem zamiast półdziałającego okna.
     if not hasattr(presets, "VideoPreset"):
+        log.error("niezgodny rdzeń app/ — brak presets.VideoPreset (stary presets.py?)")
         print("BŁĄD: niezgodna wersja rdzenia app/ — brak presets.VideoPreset.\n"
               "Przekopiuj cały folder app/ na nowo (stary presets.py przykrywa "
               "pakiet presets/). Uruchom win\\setup.bat i wybierz 3 (Skopiuj app\\).",
               file=sys.stderr)
         return 1
+    log.info("GUI start, files=%d", len(files or []))
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE)
     win = MainWindow()

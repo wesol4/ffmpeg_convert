@@ -3,6 +3,7 @@
 Używa realnego ffmpeg (generuje mały plik przez lavfi) plus mocków dla
 ścieżek błędów. Uruchomienie z repo: python3 -m unittest discover -s tests -v
 """
+import logging
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import presets, runner  # noqa: E402
+from app.log import LOGGER_NAME, get_logger, logs_dir, setup_logging  # noqa: E402
 
 
 def _ffmpeg_ok_cmd(out: Path) -> list:
@@ -157,6 +159,57 @@ class TestProgress(unittest.TestCase):
                               duration=None)
             runner.run_job(job, on_percent=fracs.append)
             self.assertEqual(fracs, [1.0])  # copy → jednorazowo 1.0
+
+
+class _Capture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records: list = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+class TestLogFile(unittest.TestCase):
+    def tearDown(self):
+        # nie zanieczyszczaj innych testów FileHandlerem do usuniętego tmp
+        logging.getLogger(LOGGER_NAME).handlers = []
+        get_logger()  # przywróć NullHandler
+
+    def test_setup_writes_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            logfile = setup_logging(logs_root=Path(d))
+            log = get_logger()
+            log.info("test-marker-123")
+            for h in log.handlers:
+                h.flush()
+            content = logfile.read_text(encoding="utf-8")
+        self.assertIn("test-marker-123", content)
+        self.assertTrue(logfile.name.endswith(".log"))
+
+    def test_logs_dir_default_under_cache(self):
+        p = logs_dir()
+        self.assertEqual(p.name, "logs")
+        self.assertEqual(p.parent.name, "ffmpeg_convert")
+
+
+class TestRunnerLogging(unittest.TestCase):
+    def test_logs_ok_and_error(self):
+        cap = _Capture()
+        log = get_logger()
+        log.addHandler(cap)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                d = Path(d)
+                ok = presets.Job(label="okjob", cmds=[_ffmpeg_ok_cmd(d / "a.png")])
+                bad = presets.Job(label="badjob", cmds=[_ffmpeg_fail_cmd()])
+                runner.run_jobs([ok, bad])
+        finally:
+            log.removeHandler(cap)
+        msgs = [r.getMessage() for r in cap.records]
+        self.assertTrue(any("OK" in m and "okjob" in m for m in msgs))
+        self.assertTrue(any("BŁĄD" in m and "badjob" in m for m in msgs))
+        self.assertTrue(any(r.levelno == logging.ERROR for r in cap.records))
 
 
 if __name__ == "__main__":

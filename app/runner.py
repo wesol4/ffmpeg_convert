@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Callable
 
 from app.core.jobs import Job
+from app.log import get_logger
+
+_LOG = get_logger()
 
 _OUT_US = re.compile(r"out_time_us=(\d+)")
 _OUT_MS = re.compile(r"out_time_ms=(\d+)")        # legacy, wartość w mikrosekundach
@@ -129,9 +132,11 @@ def run_jobs(jobs: list, on_log: Callable[[str], None] | None = None,
             ok += 1
             if on_log:
                 on_log(f"OK:  {job.label}")
+            _LOG.info("OK: %s", job.label)
         except Exception as exc:
             if on_log:
                 on_log(f"BŁĄD: {job.label}\n      {exc}")
+            _LOG.error("BŁĄD: %s — %s", job.label, exc)
         if on_progress:
             on_progress(idx, total)
         if on_percent:

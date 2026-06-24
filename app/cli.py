@@ -24,6 +24,7 @@ _PARENT = Path(__file__).resolve().parents[1]
 if str(_PARENT) not in sys.path:
     sys.path.insert(0, str(_PARENT))
 from app import presets, runner  # noqa: E402
+from app.log import get_logger, setup_logging  # noqa: E402
 
 
 def _existing(files) -> list:
@@ -158,7 +159,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    setup_logging()
+    log = get_logger()
     args = build_parser().parse_args(argv)
+    log.info("CLI: %s %s", args.cmd, " ".join(getattr(args, "files", []) or []))
     return args.func(args)
 
 

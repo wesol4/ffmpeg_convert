@@ -20,6 +20,9 @@ więc dodanie lub zmiana presetu działa od razu wszędzie
 - **`app/config.py`** — typowana konfiguracja (frozen dataclass `CONFIG`):
   CRF, preset, pix_fmt, audio bitrate, enkodery, zakres h264size, skala
   obrazów, fps. Tunable w jednym miejscu; presety/CLI/GUI czytają z `CONFIG`.
+- **`app/log.py`** — logging diagnostyczny: dzienny plik
+  `…/ffmpeg_convert/logs/YYYY-MM-DD.log` (`XDG_CACHE_HOME`/`Caches`/
+  `%LOCALAPPDATA%`). UI-log (widget GUI / stdout CLI) nienaruszony.
 - **`app/runner.py`** — uruchamia zadania (subprocess, stream stderr,
   realny postęp, przechwyt błędów, sprzątanie).
 - **`app/cli.py`** — front-end wiersza poleceń
