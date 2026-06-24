@@ -1,3 +1,13 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pragmatyczny zestaw: błędy pycodestyle (E), pyflakes (F, m.in. nieużywane
+# importy), warnings (W). Bez isort (I) — psułby kolejność bootstrapu importu
+# w cli.py/gui.py (sys.path przed `from app import …`).
+select = ["E", "F", "W"]
+
 [tool.mypy]
 python_version = "3.12"
 packages = ["app"]

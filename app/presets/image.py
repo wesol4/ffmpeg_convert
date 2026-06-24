@@ -3,7 +3,6 @@ zmianą nazwy (numeracja), wyborem miejsca zapisu, skalowaniem i podziałem na s
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Optional
 

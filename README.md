@@ -125,11 +125,16 @@ rejestru wskazują na ten sam folder, więc zwykle nie trzeba).
 
 ## Testy
 
-Testy rdzeniu (`app/presets.py`, `app/runner.py`) w `tests/` — `unittest`
-(stdlib, bez zależności); `runner` testowany na realnym `ffmpeg`.
+Testy rdzenia (`app/presets/`, `app/runner.py`) w `tests/` — `unittest`
+(stdlib, bez zależności); `runner` testowany na realnym `ffmpeg`. CI
+(GitHub Actions) uruchamia `ruff` + `mypy` + `pytest` przy każdym
+pushu/PR do mastera (`.github/workflows/ci.yml`).
+
+[![CI](https://github.com/wesol4/ffmpeg_convert/actions/workflows/ci.yml/badge.svg)](https://github.com/wesol4/ffmpeg_convert/actions/workflows/ci.yml)
 
 ```bash
-python3 -m unittest discover -s tests -v
+ruff check . && mypy app && pytest -q          # to, co odpala CI
+python3 -m unittest discover -s tests -v        # lokalnie bez zależności
 ```
 
 ---

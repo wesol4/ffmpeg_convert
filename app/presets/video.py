@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from app.core import probe
 from app.core.ffmpeg import FFMPEG
