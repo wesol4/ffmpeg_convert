@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from app.core import probe
-from app.core.ffmpeg import FFMPEG
+from app.core.ffmpeg import FFMPEG, Encoder
 from app.core.jobs import Job
 
 
@@ -21,6 +21,42 @@ class _SimpleSpec(TypedDict):
     suffix: str
     ext: str
     args: list
+
+
+# Domyślna jakość (CRF / CQ — wspólna skala 0–51) dla prostych presetów.
+_H264_QUALITY = 18
+_H265_QUALITY = 23
+
+
+def _encoder_codec_vargs(preset: "VideoPreset", encoder: "Encoder | str",
+                         quality: int) -> tuple:
+    """Zwraca (codec, vargs) dla H.264/H.265 z danym enkoderem i jakością.
+
+    quality — wspólna skala CRF/CQ (niższa = lepsza). Dla CPU to libx264/libx265
+    z -crf; dla GPU odpowiednik stałej jakości (-cq NVENC, -global_quality QSV,
+    -rc cqp -qp AMF). vargs NIE zawiera -c:v (dodaje wołający).
+    """
+    encoder = Encoder(encoder)
+    hevc = preset == VideoPreset.H265
+    if encoder == Encoder.CPU:
+        codec = "libx265" if hevc else "libx264"
+        preset_name = "medium" if hevc else "slow"
+        return codec, ["-crf", str(quality), "-preset", preset_name, "-pix_fmt", "yuv420p"]
+    if encoder == Encoder.NVENC:
+        codec = "hevc_nvenc" if hevc else "h264_nvenc"
+        return codec, ["-preset", "p4", "-tune", "hq", "-rc", "vbr",
+                       "-cq", str(quality), "-b:v", "0", "-pix_fmt", "yuv420p"]
+    if encoder == Encoder.QSV:
+        codec = "hevc_qsv" if hevc else "h264_qsv"
+        # QSV zarządza pix_fmt sam; -global_quality to ICQ (skala jak CRF).
+        return codec, ["-preset", "veryslow", "-look_ahead", "0",
+                       "-global_quality", str(quality)]
+    if encoder == Encoder.AMF:
+        codec = "hevc_amf" if hevc else "h264_amf"
+        return codec, ["-quality", "quality", "-rc", "cqp",
+                       "-qp_i", str(quality), "-qp_p", str(quality),
+                       "-b:v", "0", "-pix_fmt", "yuv420p"]
+    raise ValueError(f"Nieznany enkoder: {encoder}")
 
 
 class VideoPreset(StrEnum):
@@ -100,12 +136,20 @@ def _out_dir(src: Path, suffix: str, batch: bool) -> Path:
 
 
 def _h264_size_job(src: Path, base: str, batch: bool,
-                   size_mode: str, crf: int, target_mb: float) -> Job:
-    """Preset z kontrolą rozmiaru: tryb CRF (1 przebieg) lub MB (2 przebiegi)."""
+                   size_mode: str, crf: int, target_mb: float,
+                   encoder: "Encoder | str" = "cpu") -> Job:
+    """Preset z kontrolą rozmiaru.
+
+    Tryb CRF (1 przebieg) —honory enkodera (GPU = stała jakość CQ, szybciej).
+    Tryb docelowego rozmiaru MB (2 przebiegi) — zawsze CPU libx264: precyzyjny
+    rozmiar wymaga 2-pass, a GPU robi to niedokładnie; enkoder ignorowany.
+    """
+    encoder = Encoder(encoder)
     out_dir = _out_dir(src, "H264", batch)
     out_path = out_dir / f"{base}_H264.mp4"
     rel = out_path.relative_to(src.parent)
     dur = probe.probe_duration(src)
+    enc_tag = "" if encoder == Encoder.CPU else f" [{encoder.value.upper()}]"
 
     def crf_fallback(reason: str) -> Job:
         cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-crf", "23",
@@ -115,13 +159,13 @@ def _h264_size_job(src: Path, base: str, batch: bool,
                    mkdir=out_dir, duration=dur)
 
     if size_mode == "crf":
-        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-crf", str(crf),
-               "-preset", "slow", "-pix_fmt", "yuv420p",
+        codec, vargs = _encoder_codec_vargs(VideoPreset.H264, encoder, crf)
+        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
                "-c:a", "aac", "-b:a", "192k", str(out_path)]
-        return Job(label=f"{src.name} → {rel} (CRF {crf})", cmds=[cmd],
+        return Job(label=f"{src.name} → {rel} (CRF {crf}{enc_tag})", cmds=[cmd],
                    mkdir=out_dir, duration=dur)
 
-    # Tryb docelowego rozmiaru: bitrate wideo liczony z czasu trwania.
+    # Tryb docelowego rozmiaru: bitrate wideo liczony z czasu trwania (CPU 2-pass).
     if not dur or dur <= 0:
         return crf_fallback("nie odczytano długości — CRF 23")
 
@@ -140,7 +184,7 @@ def _h264_size_job(src: Path, base: str, batch: bool,
         pass2 += ["-c:a", "aac", "-b:a", f"{audio_k}k"]
     pass2.append(str(out_path))
     return Job(
-        label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo)",
+        label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo, CPU 2-pass)",
         cmds=[pass1, pass2], mkdir=out_dir, duration=dur,
         cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")],
     )
@@ -164,15 +208,35 @@ def _frames_job(src: Path, base: str, frames_format: str, with_wav: bool) -> Job
 
 def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str = "crf",
                      crf: int = 23, target_mb: float = 25, frames_format: str = "png",
-                     frames_with_wav: bool = True) -> list:
-    """Zbuduj listę Jobów dla wybranego presetu wideo."""
+                     frames_with_wav: bool = True,
+                     encoder: "Encoder | str" = "cpu") -> list:
+    """Zbuduj listę Jobów dla wybranego presetu wideo.
+
+    encoder — wybór enkodera dla H.264/H.265 (i h264size w trybie CRF).
+    Presety montażowe (DNxHD/DNxHR/ProRes/Cineform) są CPU-only; encoder
+    ignorowany. h264size w trybie docelowego rozmiaru zawsze CPU 2-pass.
+    """
     preset = VideoPreset(preset)  # coerce str → enum (ValueError przy literówce)
+    encoder = Encoder(encoder)
     files = [Path(f) for f in files]
     batch = len(files) > 1
+    enc_tag = "" if encoder == Encoder.CPU else f" [{encoder.value.upper()}]"
     jobs: list = []
     for src in files:
         base = src.stem
-        if preset in SIMPLE_VIDEO:
+        if preset in (VideoPreset.H264, VideoPreset.H265):
+            spec = SIMPLE_VIDEO[preset]  # suffix/ext/label
+            out_dir = _out_dir(src, spec["suffix"], batch)
+            out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
+            quality = _H264_QUALITY if preset == VideoPreset.H264 else _H265_QUALITY
+            codec, vargs = _encoder_codec_vargs(preset, encoder, quality)
+            cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
+                   "-c:a", "aac", "-b:a", "192k", str(out_path)]
+            jobs.append(Job(
+                label=f"{src.name} → {out_path.relative_to(src.parent)}{enc_tag}",
+                cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),
+            ))
+        elif preset in SIMPLE_VIDEO:  # dnxhd/dnxhr/prores/cineform — CPU-only
             spec = SIMPLE_VIDEO[preset]
             out_dir = _out_dir(src, spec["suffix"], batch)
             out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
@@ -182,7 +246,7 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
                 cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),
             ))
         elif preset == VideoPreset.H264SIZE:
-            jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb))
+            jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb, encoder))
         elif preset == VideoPreset.LAST_FRAME:
             out_path = src.parent / f"{base}_last.png"
             cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), "-update", "1", str(out_path)]

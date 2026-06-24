@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import TypedDict
 
 from app.core import probe
-from app.core.ffmpeg import FFMPEG
+from app.core.ffmpeg import FFMPEG, Encoder
 from app.core.jobs import Job
+from app.presets.video import VideoPreset, _encoder_codec_vargs
 
 
 class _SeqSpec(TypedDict):
@@ -62,11 +63,15 @@ def _seq_stem(name: str) -> str:
     return s
 
 
-def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264") -> Job:
+def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264",
+                  encoder: "Encoder | str" = "cpu") -> Job:
     """Złóż posortowane obrazy w wideo przez demuxer image2 (niezawodny FPS i
     pełna liczba klatek). Tworzy katalog tymczasowy z symlinkami seq_%05d.ext.
+
+    encoder — wybór enkodera dla formatów h264/h265 (prores/dnxhd CPU-only).
     """
     fmt = SeqFormat(fmt)  # coerce str → enum (ValueError przy literówce)
+    encoder = Encoder(encoder)
     spec = SEQ_FORMATS[fmt]
     # Sortowanie naturalne (frame_2 < frame_10), nie leksykalne. resolve() —
     # by nazwa folderu wyjściowego była poprawna także dla ścieżek względnych.
@@ -99,8 +104,17 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
     cmd = [FFMPEG, "-y", "-framerate", str(fps), "-i", str(tmp / f"seq_%05d.{seq_ext}")]
     if audio:
         cmd += ["-i", str(audio), *spec["aargs"], "-shortest"]
-    cmd += [*spec["vargs"], str(out_path)]
-    label = f"{len(paths)} klatek @ {fps} fps → {out_path.name}"
+    # vargs: dla h264/h265 honoruj enkoder; prores/dnxhd — CPU z SEQ_FORMATS.
+    if fmt in (SeqFormat.H264, SeqFormat.H265) and encoder != Encoder.CPU:
+        vpreset = VideoPreset.H264 if fmt == SeqFormat.H264 else VideoPreset.H265
+        quality = 18 if fmt == SeqFormat.H264 else 23
+        codec, vargs = _encoder_codec_vargs(vpreset, encoder, quality)
+        cmd += ["-c:v", codec, *vargs, str(out_path)]
+        enc_tag = f" [{encoder.value.upper()}]"
+    else:
+        cmd += [*spec["vargs"], str(out_path)]
+        enc_tag = ""
+    label = f"{len(paths)} klatek @ {fps} fps → {out_path.name}{enc_tag}"
     if audio:
         label += f" (+ audio {audio.name})"
     return Job(label=label, cmds=[cmd], mkdir=out_dir, cleanup=[tmp],

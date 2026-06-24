@@ -373,6 +373,34 @@ class VideoPanel(QWidget):
         self.size_box.setVisible(False)
         layout.addWidget(self.size_box)
 
+        # Enkoder wideo (CPU / NVENC / QuickSync / AMF) — dla H.264/H.265
+        # (i h264size w trybie CRF). Dostępne opcje filtrowane przez probe_encoders.
+        self.encoder_box = QGroupBox("Enkoder wideo")
+        elay = QHBoxLayout(self.encoder_box)
+        self.encoder_combo = QComboBox()
+        enc_labels = {
+            presets.Encoder.CPU: "CPU (programowy)",
+            presets.Encoder.NVENC: "NVENC (NVIDIA)",
+            presets.Encoder.QSV: "QuickSync (Intel)",
+            presets.Encoder.AMF: "AMF (AMD)",
+        }
+        for enc in (presets.Encoder.CPU, presets.Encoder.NVENC,
+                    presets.Encoder.QSV, presets.Encoder.AMF):
+            if enc in presets.probe_encoders():
+                self.encoder_combo.addItem(enc_labels[enc], enc.value)
+        elay.addWidget(self.encoder_combo)
+        elay.addStretch()
+        self.encoder_box.setVisible(False)
+        layout.addWidget(self.encoder_box)
+        # Tryb rozmiaru (h264size) używa CPU 2-pass — wyłączamy wybór enkodera.
+        self.rb_crf.toggled.connect(self._toggle_encoder_enabled)
+        self.rb_target.toggled.connect(self._toggle_encoder_enabled)
+
+        # Ustaw widoczność boxów dla domyślnie zaznaczonego presetu (h264):
+        # bez tego encoder_box byłby ukryty na starcie, bo sygnał toggled nie
+        # emituje się dla radio, które jest już zaznaczone.
+        self._toggle_option_boxes()
+
         layout.addStretch()
 
     def _update_crf_label(self, value):
@@ -385,8 +413,20 @@ class VideoPanel(QWidget):
         self.crf_label.setText(f"CRF {value} — {hint}")
 
     def _toggle_option_boxes(self):
+        is_h264 = self.preset_buttons[presets.VideoPreset.H264].isChecked()
+        is_h265 = self.preset_buttons[presets.VideoPreset.H265].isChecked()
+        is_size = self.preset_buttons[presets.VideoPreset.H264SIZE].isChecked()
         self.frames_box.setVisible(self.preset_buttons[presets.VideoPreset.FRAMES].isChecked())
-        self.size_box.setVisible(self.preset_buttons[presets.VideoPreset.H264SIZE].isChecked())
+        self.size_box.setVisible(is_size)
+        self.encoder_box.setVisible(is_h264 or is_h265 or is_size)
+        self._toggle_encoder_enabled()
+
+    def _toggle_encoder_enabled(self):
+        # h264size + tryb docelowego rozmiaru → CPU 2-pass; enkoder nie ma sensu.
+        is_size = self.preset_buttons[presets.VideoPreset.H264SIZE].isChecked()
+        enabled = not (is_size and self.rb_target.isChecked())
+        self.encoder_combo.setEnabled(enabled)
+        self.encoder_box.setEnabled(enabled)
 
     def set_files(self, files):
         self.files = files
@@ -404,6 +444,7 @@ class VideoPanel(QWidget):
             crf=self.crf_slider.value(), target_mb=self.target_mb.value(),
             frames_format=self.frames_format.currentText().lower(),
             frames_with_wav=self.frames_wav.isChecked(),
+            encoder=self.encoder_combo.currentData() or "cpu",
         )
 
 

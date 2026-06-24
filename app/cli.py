@@ -50,6 +50,7 @@ def cmd_video(a) -> int:
         a.preset, files, size_mode=("size" if a.target_mb else "crf"),
         crf=a.crf, target_mb=(a.target_mb or 25),
         frames_format=a.frames_format, frames_with_wav=not a.no_wav,
+        encoder=a.encoder,
     )
     return _run(jobs)
 
@@ -66,7 +67,7 @@ def cmd_image(a) -> int:
 
 def cmd_seq(a) -> int:
     files = _existing(a.files)
-    return _run([presets.build_seq_job(files, fps=a.fps, fmt=a.format)])
+    return _run([presets.build_seq_job(files, fps=a.fps, fmt=a.format, encoder=a.encoder)])
 
 
 def cmd_split(a) -> int:
@@ -112,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="docelowy rozmiar MB dla h264size (2 przebiegi)")
     pv.add_argument("--frames-format", default="png", choices=["png", "jpg", "exr"])
     pv.add_argument("--no-wav", action="store_true", help="nie eksportuj WAV przy 'frames'")
+    pv.add_argument("--encoder", default="cpu", choices=[e.value for e in presets.Encoder],
+                    help="enkoder wideo: cpu (domyślnie) / nvenc / qsv / amf (dla H.264/H.265)")
     pv.add_argument("files", nargs="+")
     pv.set_defaults(func=cmd_video)
 
@@ -127,6 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
     ps = sub.add_parser("seq", help="sekwencja obrazów → wideo")
     ps.add_argument("--fps", type=int, default=24)
     ps.add_argument("--format", default="h264", choices=[f.value for f in presets.SeqFormat])
+    ps.add_argument("--encoder", default="cpu", choices=[e.value for e in presets.Encoder],
+                    help="enkoder dla h264/h265: cpu / nvenc / qsv / amf")
     ps.add_argument("files", nargs="+")
     ps.set_defaults(func=cmd_seq)
 

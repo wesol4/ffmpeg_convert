@@ -145,6 +145,19 @@ python3 -m unittest discover -s tests -v        # lokalnie bez zależności
 - **MP4 H.264 (kontrola rozmiaru)** — CRF lub docelowy rozmiar w MB
   (2 przebiegi).
 - **MP4 H.265 / HEVC (CRF 23)** — mniejszy rozmiar niż H.264.
+
+### Enkodery sprzętowe (GPU)
+
+Dla **H.264 / H.265** (i „kontroli rozmiaru" w trybie CRF) można wybrać
+enkoder: `cpu` (domyślnie, libx264/libx265), `nvenc` (NVIDIA),
+`qsv` (Intel QuickSync), `amf` (AMD) — 10–30× szybsza konwersja. Dostępne
+opcje są filtrowane przez `ffmpeg -encoders` (CPU zawsze). CLI: `--encoder`;
+GUI: lista „Enkoder wideo" (ukryta dla kodeków montażowych CPU-only).
+Tryb docelowego rozmiaru MB zawsze używa CPU 2-pass (precyzja rozmiaru).
+
+```bash
+python3 app/cli.py video --preset h264 --encoder nvenc plik.mov
+```
 - **DNxHD 1080p (120 Mb/s)** — edycja, format Avid.
 - **DNxHR HQ** — edycja, format Avid (dowolna rozdzielczość).
 - **ProRes 422 HQ** — edycja, format Apple.

@@ -50,6 +50,109 @@ class TestEnums(unittest.TestCase):
         self.assertEqual(jobs_str[0].cmds[0], jobs_enum[0].cmds[0])
 
 
+class TestEncoder(unittest.TestCase):
+    def test_encoder_enum_compat(self):
+        self.assertEqual(presets.Encoder.NVENC, "nvenc")
+        self.assertIs(presets.Encoder("qsv"), presets.Encoder.QSV)
+        with self.assertRaises(ValueError):
+            presets.Encoder("nvidia")  # literówka
+
+    def test_h264_nvenc(self):
+        cmd = presets.build_video_jobs("h264", [Path("/d/x.mov")], encoder="nvenc")[0].cmds[0]
+        self.assertIn("h264_nvenc", cmd)
+        self.assertIn("-cq", cmd)
+        self.assertEqual(cmd[cmd.index("-cq") + 1], "18")
+        self.assertIn("-b:v", cmd)  # CQ mode → -b:v 0
+
+    def test_h265_nvenc(self):
+        cmd = presets.build_video_jobs("h265", [Path("/d/x.mov")], encoder="nvenc")[0].cmds[0]
+        self.assertIn("hevc_nvenc", cmd)
+        self.assertEqual(cmd[cmd.index("-cq") + 1], "23")
+
+    def test_h264_qsv_no_pix_fmt(self):
+        cmd = presets.build_video_jobs("h264", [Path("/d/x.mov")], encoder="qsv")[0].cmds[0]
+        self.assertIn("h264_qsv", cmd)
+        self.assertIn("-global_quality", cmd)
+        self.assertNotIn("-pix_fmt", cmd)  # QSV zarządza pix_fmt sam
+
+    def test_h265_amf_cqp(self):
+        cmd = presets.build_video_jobs("h265", [Path("/d/x.mov")], encoder="amf")[0].cmds[0]
+        self.assertIn("hevc_amf", cmd)
+        self.assertIn("-rc", cmd)
+        self.assertEqual(cmd[cmd.index("-rc") + 1], "cqp")
+        self.assertEqual(cmd[cmd.index("-qp_i") + 1], "23")
+
+    def test_cpu_is_default(self):
+        cmd = presets.build_video_jobs("h264", [Path("/d/x.mov")])[0].cmds[0]
+        self.assertIn("libx264", cmd)
+        self.assertEqual(cmd[cmd.index("-crf") + 1], "18")
+
+    def test_dnxhd_ignores_encoder(self):
+        # DNxHD to kodek montażowy CPU-only — enkoder ignorowany.
+        cmd = presets.build_video_jobs("dnxhd", [Path("/d/x.mov")], encoder="nvenc")[0].cmds[0]
+        self.assertIn("dnxhd", cmd)
+        self.assertNotIn("h264_nvenc", cmd)
+
+    def test_h264size_crf_uses_encoder(self):
+        src = Path("/tmp/v.mov")
+        job = presets.build_video_jobs("h264size", [src],
+                                       size_mode="crf", crf=20, encoder="nvenc")[0]
+        cmd = job.cmds[0]
+        self.assertIn("h264_nvenc", cmd)
+        self.assertEqual(cmd[cmd.index("-cq") + 1], "20")
+        self.assertIn("NVENC", job.label)
+
+    def test_h264size_size_mode_forces_cpu(self):
+        # tryb docelowego rozmiaru → CPU 2-pass (precyzja), enkoder ignorowany.
+        src = Path("/tmp/v.mov")
+        with mock.patch("app.core.probe.probe_duration", return_value=10.0), \
+             mock.patch("app.core.probe.probe_has_audio", return_value=True):
+            job = presets.build_video_jobs("h264size", [src],
+                                           size_mode="size", target_mb=25, encoder="nvenc")[0]
+        self.assertIn("libx264", job.cmds[0])
+        self.assertIn("-pass", job.cmds[0])
+        self.assertIn("CPU 2-pass", job.label)
+
+
+class TestSeqEncoder(unittest.TestCase):
+    def test_seq_h264_nvenc(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "f_1.png").touch()
+            (d / "f_2.png").touch()
+            job = presets.build_seq_job([str(d / "f_1.png"), str(d / "f_2.png")],
+                                        fps=24, fmt="h264", encoder="nvenc")
+            cmd = job.cmds[0]
+            self.assertIn("h264_nvenc", cmd)
+            self.assertIn("-cq", cmd)
+            self.assertIn("NVENC", job.label)
+
+    def test_seq_prores_ignores_encoder(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "f_1.png").touch()
+            job = presets.build_seq_job([str(d / "f_1.png")], fps=30, fmt="prores", encoder="nvenc")
+            self.assertNotIn("nvenc", [c.lower() for c in job.cmds[0]])
+
+
+class TestProbeEncoders(unittest.TestCase):
+    def test_detects_nvenc_only(self):
+        text = " ..... h264_nvenc   NVIDIA NVENC H.264 encoder\n" \
+               " ..... hevc_nvenc   NVIDIA NVENC HEVC encoder\n"
+        with mock.patch("app.core.probe.subprocess.run",
+                        return_value=mock.MagicMock(stdout=text)):
+            avail = presets.probe_encoders()
+        self.assertIn(presets.Encoder.CPU, avail)
+        self.assertIn(presets.Encoder.NVENC, avail)
+        self.assertNotIn(presets.Encoder.QSV, avail)
+        self.assertNotIn(presets.Encoder.AMF, avail)
+
+    def test_always_has_cpu_on_failure(self):
+        with mock.patch("app.core.probe.subprocess.run", side_effect=RuntimeError):
+            avail = presets.probe_encoders()
+        self.assertEqual(avail, {presets.Encoder.CPU})
+
+
 class TestSimpleVideo(unittest.TestCase):
     def _job_cmd(self, jobs):
         self.assertEqual(len(jobs), 1)

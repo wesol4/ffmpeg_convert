@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from app.core.ffmpeg import FFPROBE
+from app.core.ffmpeg import FFMPEG, FFPROBE, Encoder
 
 
 def probe_duration(src: Path) -> Optional[float]:
@@ -48,3 +48,26 @@ def probe_has_audio(src: Path) -> bool:
         return bool(out.stdout.strip())
     except Exception:
         return False
+
+
+def probe_encoders() -> set:
+    """Zbiór dostępnych enkoderów (Encoder) na podstawie `ffmpeg -encoders`.
+
+    Zwraca co najmniej {Encoder.CPU}. Sprzętowe (NVENC/QSV/AMF) dodaje, gdy
+    ffmpeg zna zarówno h264_*, jak i hevc_* wariant danego dostawcy. Uwaga:
+    to oznacza, że ffmpeg jest SKOMPILOWANY z obsługą enkodera — nie gwarantuje
+    obecności GPU; brak sprzętu wykryje się dopiero błędem konwersji.
+    """
+    avail = {Encoder.CPU}
+    try:
+        out = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, check=False)
+        text = out.stdout
+        for enc in Encoder:
+            if enc == Encoder.CPU:
+                continue
+            if f"h264_{enc.value}" in text and f"hevc_{enc.value}" in text:
+                avail.add(enc)
+    except Exception:
+        pass
+    return avail
