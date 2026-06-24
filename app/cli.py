@@ -70,6 +70,30 @@ def cmd_seq(a) -> int:
     return _run([presets.build_seq_job(files, fps=a.fps, fmt=a.format)])
 
 
+def cmd_split(a) -> int:
+    files = _existing(a.files)
+    # Domyślnie: podfolder SplitGrid tylko przy wielu plikach (jak dawniej);
+    # --beside wymusza zapis obok oryginału.
+    subdir = (not a.beside) and len(files) > 1
+    return _run(presets.build_split_jobs(files, cols=a.cols, rows=a.rows,
+                                         subdir=subdir))
+
+
+def cmd_flipbook(a) -> int:
+    files = _existing(a.files)
+    tile = None
+    if a.tile:
+        try:
+            w, h = a.tile.lower().split("x")
+            tile = (int(w), int(h))
+        except ValueError:
+            print(f"Niepoprawny --tile (oczekiwano WxH, np. 128x128): {a.tile}",
+                  file=sys.stderr)
+            return 1
+    return _run([presets.build_flipbook_job(files, cols=a.cols, rows=a.rows,
+                                            tile=tile)])
+
+
 def cmd_gui(a) -> int:
     # Przekaż pliki do GUI (te same receptury, pełna kontrola opcji).
     if __package__:
@@ -113,6 +137,20 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui", help="otwórz GUI z wczytanymi plikami")
     pg.add_argument("files", nargs="*")
     pg.set_defaults(func=cmd_gui)
+
+    pspl = sub.add_parser("split", help="podział obrazu na siatkę X×Y")
+    pspl.add_argument("--cols", type=int, required=True, help="liczba części w poziomie")
+    pspl.add_argument("--rows", type=int, required=True, help="liczba części w pionie")
+    pspl.add_argument("--beside", action="store_true", help="zapisz obok oryginału (zamiast podfolderu)")
+    pspl.add_argument("files", nargs="+")
+    pspl.set_defaults(func=cmd_split)
+
+    pfl = sub.add_parser("flipbook", help="spritesheet z klatek (concat + tile)")
+    pfl.add_argument("--cols", type=int, required=True, help="kolumny siatki")
+    pfl.add_argument("--rows", type=int, required=True, help="wiersze siatki")
+    pfl.add_argument("--tile", default=None, help="rozdzielczość kafelka WxH (np. 128x128)")
+    pfl.add_argument("files", nargs="+")
+    pfl.set_defaults(func=cmd_flipbook)
 
     return p
 

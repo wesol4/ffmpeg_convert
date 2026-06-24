@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# Cienki front-end: zbiera siatkę X×Y przez zenity, podział wykonuje wspólny
+# rdzeń (app/cli.py split) — ta sama receptura, co reszta front-endów.
 set -euo pipefail
 
-LOG="/tmp/split_image_$(date +%Y%m%d_%H%M%S).log"
-exec > >(tee -a "$LOG") 2>&1
-trap 'zenity --error --text="Błąd splitowania.\nLog: $LOG"' ERR
+CLI="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)/../app/cli.py"
 
-# okno z DWOMA polami
+(( $# >= 1 )) || { zenity --error --text="Zaznacz co najmniej jeden plik."; exit 1; }
+
 GRID=$(zenity --forms \
   --title="Split obrazu na siatkę" \
   --text="Ustaw liczbę podziałów" \
@@ -15,51 +16,11 @@ GRID=$(zenity --forms \
 
 IFS=',' read -r GRID_X GRID_Y <<< "$GRID"
 
-# walidacja liczb
 [[ "$GRID_X" =~ ^[0-9]+$ ]] || { zenity --error --text="X musi być liczbą"; exit 1; }
 [[ "$GRID_Y" =~ ^[0-9]+$ ]] || { zenity --error --text="Y musi być liczbą"; exit 1; }
-
 (( GRID_X >= 1 )) || { zenity --error --text="X musi być ≥ 1"; exit 1; }
 (( GRID_Y >= 1 )) || { zenity --error --text="Y musi być ≥ 1"; exit 1; }
 
-(( $# > 1 )) && MULTI=1 || MULTI=0
+python3 "$CLI" split --cols "$GRID_X" --rows "$GRID_Y" "$@"
 
-for SRC in "$@"; do
-  [[ -f "$SRC" ]] || continue
-
-  DIR=$(dirname "$SRC")
-  BASE=$(basename "${SRC%.*}")
-
-  if [[ $MULTI -eq 1 ]]; then
-      OUTDIR="$DIR/SplitGrid"; mkdir -p "$OUTDIR"
-  else
-      OUTDIR="$DIR"
-  fi
-
-  # pobranie wymiarów obrazu
-  INFO=$(ffprobe -v error -show_entries stream=width,height \
-        -of csv=p=0 "$SRC" | head -n1)
-
-  IFS=',' read -r W H <<< "$INFO"
-
-  TILE_W=$(( W / GRID_X ))
-  TILE_H=$(( H / GRID_Y ))
-
-  for (( y=0; y<GRID_Y; y++ )); do
-    for (( x=0; x<GRID_X; x++ )); do
-
-      CW=$(( x == GRID_X-1 ? W - x*TILE_W : TILE_W ))
-      CH=$(( y == GRID_Y-1 ? H - y*TILE_H : TILE_H ))
-
-      OUT="${OUTDIR}/${BASE}_${y}_${x}.png"
-
-      ffmpeg -hide_banner -y -i "$SRC" \
-        -vf "crop=${CW}:${CH}:$((x*TILE_W)):$((y*TILE_H))" \
-        "$OUT"
-    done
-  done
-done
-
-zenity --info --text="Split zakończony!\nLog: $LOG"
-
-
+zenity --info --text="Split zakończony!"

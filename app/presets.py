@@ -11,6 +11,7 @@ Funkcje budujące zwracają listę obiektów `Job`; uruchamia je `runner.py`.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -119,6 +120,21 @@ def probe_duration(src: Path) -> Optional[float]:
             check=True, capture_output=True, text=True,
         )
         return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def probe_size(src: Path) -> Optional[tuple]:
+    """Wymiary (width, height) pierwszego strumienia wideo lub None."""
+    try:
+        out = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
+             str(src)],
+            check=True, capture_output=True, text=True,
+        )
+        w, h = out.stdout.strip().split("x")
+        return int(w), int(h)
     except Exception:
         return None
 
@@ -344,5 +360,93 @@ def build_seq_job(files, *, fps: int = 24, fmt: str = "h264") -> Job:
 
 
 def _natural_key(s: str):
-    import re
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+
+def _seq_stem(name: str) -> str:
+    """Bazowa nazwa sekwencji: z nazwy pliku usuwa ogon numeryczny sekwencji.
+
+    Np. 'frame_001' → 'frame', 'render.0001' → 'render', 'clip' → 'clip'.
+    (Odpowiednik dawnego seda w make_flipbook.sh.)
+    """
+    s = Path(name).stem
+    s = re.sub(r"\.\d{3,}$", "", s)
+    s = re.sub(r"_\d{3,}$", "", s)
+    return s
+
+
+# --------------------------------------------------------------------------
+#  Podział obrazu na siatkę (split) i spritesheet z klatek (flipbook).
+#  Dawniej były to skrypty bash z własną logiką ffmpeg — teraz żyją w rdzeniu,
+#  a bash jest tylko cienkim front-endem (zenity → CLI), jak images_to_video.sh.
+# --------------------------------------------------------------------------
+def build_split_jobs(files, *, cols: int, rows: int, subdir: bool = True) -> list:
+    """Podziel każdy obraz na siatkę cols×rows przez filtr crop.
+
+    Ostatnia kolumna/wiersz dostaje resztę (żeby nie gubić pikseli przy
+    dzieleniu). Przy subdir=True zapis do podfolderu 'SplitGrid'.
+    """
+    if cols < 1 or rows < 1:
+        raise ValueError("cols i rows muszą być ≥ 1")
+    jobs = []
+    for path in [Path(f) for f in files]:
+        if kind_of(path) != "image":
+            continue
+        size = probe_size(path)
+        if not size:
+            continue  # ffprobe nie odczytał wymiarów — pomijamy
+        w, h = size
+        tw, th = w // cols, h // rows
+        out_dir = (path.parent / "SplitGrid") if subdir else path.parent
+        cmds = []
+        for y in range(rows):
+            for x in range(cols):
+                cw = (w - x * tw) if x == cols - 1 else tw
+                ch = (h - y * th) if y == rows - 1 else th
+                out = out_dir / f"{path.stem}_{y}_{x}.png"
+                cmds.append([FFMPEG, "-y", "-loglevel", "error", "-i", str(path),
+                             "-vf", f"crop={cw}:{ch}:{x * tw}:{y * th}", str(out)])
+        jobs.append(Job(
+            label=f"{path.name} → {out_dir.name}/ ({cols}×{rows})",
+            cmds=cmds, mkdir=out_dir,
+        ))
+    return jobs
+
+
+def build_flipbook_job(files, *, cols: int, rows: int,
+                       tile: Optional[tuple] = None) -> Job:
+    """Złóż posortowane obrazy w spritesheet przez concat + filtr tile.
+
+    tile=(w,h) — opcjonalne skalowanie kafelka przed ułożeniem w siatkę.
+    Wyjście: {stem}_flipbook_{cols}x{rows}.png obok pierwszego pliku.
+    """
+    if cols < 1 or rows < 1:
+        raise ValueError("cols i rows muszą być ≥ 1")
+    paths = sorted((Path(f).resolve() for f in files),
+                   key=lambda p: _natural_key(p.name))
+    if not paths:
+        raise ValueError("Brak plików sekwencji.")
+
+    out_dir = paths[0].parent
+    stem = _seq_stem(paths[0].name) or "flipbook"
+    out_path = out_dir / f"{stem}_flipbook_{cols}x{rows}.png"
+
+    src_size = probe_size(paths[0])
+    if tile and src_size and tile != src_size:
+        vf = f"scale={tile[0]}:{tile[1]},tile={cols}x{rows}"
+    else:
+        vf = f"tile={cols}x{rows}"
+
+    # concat demuxer: lista plików w tymczasowym pliku tekstowym.
+    tmp_list = tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt",
+                                           prefix="ffflip_", encoding="utf-8")
+    for p in paths:
+        tmp_list.write(f"file '{p}'\n")
+    tmp_list.close()
+
+    cmd = [FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", tmp_list.name,
+           "-vf", vf, "-frames:v", "1", "-update", "1", str(out_path)]
+    return Job(
+        label=f"{len(paths)} klatek → {out_path.name} ({cols}×{rows})",
+        cmds=[cmd], mkdir=out_dir, cleanup=[Path(tmp_list.name)],
+    )

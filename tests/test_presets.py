@@ -223,5 +223,82 @@ class TestSeq(unittest.TestCase):
             presets.build_seq_job([Path("/d/a.png")], fmt="nope")
 
 
+def _make_png(path: Path, size: str = "8x8", color: str = "red"):
+    """Wygeneruj realny mały PNG przez lavfi (do testów split/flipbook)."""
+    import subprocess
+    subprocess.run([presets.FFMPEG, "-y", "-f", "lavfi", "-i",
+                    f"color={color}:size={size}", "-frames:v", "1", str(path)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class TestSplit(unittest.TestCase):
+    def test_grid_2x2_crops_and_naming(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "img.png"
+            _make_png(src, "8x8")
+            jobs = presets.build_split_jobs([src], cols=2, rows=2, subdir=True)
+            self.assertEqual(len(jobs), 1)
+            job = jobs[0]
+            self.assertEqual(len(job.cmds), 4)  # 2x2 = 4 kafelki
+            self.assertEqual(job.mkdir, d / "SplitGrid")
+            # crop=4:4:ox:oy (8/2=4; ostatnia kolumna/wiersz dostaje resztę 4)
+            vfs = [c[c.index("-vf") + 1] for c in job.cmds]
+            self.assertIn("crop=4:4:0:0", vfs)
+            self.assertIn("crop=4:4:4:4", vfs)
+            outs = [c[-1] for c in job.cmds]
+            self.assertTrue(all(o.startswith(str(d / "SplitGrid" / "img_")) for o in outs))
+
+    def test_rejects_bad_grid(self):
+        with self.assertRaises(ValueError):
+            presets.build_split_jobs([Path("/d/a.png")], cols=0, rows=2)
+
+    def test_skips_non_image(self):
+        jobs = presets.build_split_jobs([Path("/d/a.txt")], cols=2, rows=2)
+        self.assertEqual(len(jobs), 0)
+
+
+class TestFlipbook(unittest.TestCase):
+    def test_cmd_and_real_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for n in ("frame_1.png", "frame_2.png"):
+                _make_png(d / n, "8x8")
+            files = [str(d / "frame_1.png"), str(d / "frame_2.png")]
+            job = presets.build_flipbook_job(files, cols=2, rows=1)
+            cmd = job.cmds[0]
+            self.assertIn("-f", cmd)
+            self.assertEqual(cmd[cmd.index("-f") + 1], "concat")
+            self.assertEqual(cmd[cmd.index("-vf") + 1], "tile=2x1")
+            self.assertTrue(cmd[-1].endswith("_flipbook_2x1.png"))
+            # realne wykonanie → plik istnieje
+            import app.runner as runner
+            runner.run_job(job)
+            self.assertTrue(Path(cmd[-1]).is_file())
+
+    def test_tile_scaling(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            _make_png(d / "f_1.png", "8x8")
+            _make_png(d / "f_2.png", "8x8")
+            job = presets.build_flipbook_job(
+                [str(d / "f_1.png"), str(d / "f_2.png")],
+                cols=2, rows=1, tile=(4, 4))
+            self.assertEqual(job.cmds[0][job.cmds[0].index("-vf") + 1],
+                             "scale=4:4,tile=2x1")
+
+    def test_rejects_bad_grid(self):
+        with self.assertRaises(ValueError):
+            presets.build_flipbook_job([Path("/d/a.png")], cols=0, rows=1)
+
+
+class TestSeqStem(unittest.TestCase):
+    def test_strip_numeric_tail(self):
+        self.assertEqual(presets._seq_stem("frame_001.png"), "frame")
+        self.assertEqual(presets._seq_stem("render.0001.png"), "render")
+        self.assertEqual(presets._seq_stem("clip.png"), "clip")
+        self.assertEqual(presets._seq_stem("frame_1.png"), "frame_1")  # <3 cyfry
+
+
 if __name__ == "__main__":
     unittest.main()
