@@ -231,16 +231,32 @@ def image_target_name(path: Path, idx: int, newname: str, keep: bool):
     return base, ext
 
 
+def _scale_filter(scale_pct: Optional[float]) -> Optional[str]:
+    """Wyrażenie filtra FFmpeg skalujące o dany procent, lub None gdy brak.
+
+    trunc(.../2)*2 zaokrągla wymiary w dół do parzystych — yuvj420p tego wymaga.
+    """
+    if not scale_pct or scale_pct == 100:
+        return None
+    p = scale_pct / 100
+    return f"scale=trunc(iw*{p}/2)*2:trunc(ih*{p}/2)*2"
+
+
 def build_image_jobs(files, *, quality: Optional[int] = 2, keep: bool = False,
-                     newname: str = "", subdir: bool = True) -> list:
+                     newname: str = "", subdir: bool = True,
+                     scale_pct: Optional[float] = None) -> list:
     """Joby dla obrazów. quality=None lub keep=True → kopiuj oryginał.
 
     Inaczej niż dawniej, kompresji do JPG poddajemy DOWOLNY obraz rastrowy
     (nie tylko PNG) — FFmpeg potrafi przekodować każdy z IMAGE_EXTS.
+
+    scale_pct — opcjonalne skalowanie procentowe (np. 50 = połowa wymiarów),
+    stosowane tylko przy przekodowaniu (nie przy „zachowaj oryginał").
     """
     files = [Path(f) for f in files]
     jobs = []
     idx = 0
+    scale = _scale_filter(scale_pct)
     for path in files:
         if kind_of(path) != "image":
             continue
@@ -254,9 +270,11 @@ def build_image_jobs(files, *, quality: Optional[int] = 2, keep: bool = False,
             jobs.append(Job(label=f"{path.name} → {out_path.name}",
                             cmds=[["__copy__", str(path), str(out_path)]], mkdir=out_dir))
         else:
+            vf = "format=yuvj420p" if not scale else f"{scale},format=yuvj420p"
             cmd = [FFMPEG, "-y", "-loglevel", "error", "-i", str(path),
-                   "-q:v", str(quality), "-vf", "format=yuvj420p", str(out_path)]
-            jobs.append(Job(label=f"{path.name} → {out_path.name}", cmds=[cmd], mkdir=out_dir))
+                   "-q:v", str(quality), "-vf", vf, str(out_path)]
+            tag = f" (skala {scale_pct:g}%)" if scale else ""
+            jobs.append(Job(label=f"{path.name} → {out_path.name}{tag}", cmds=[cmd], mkdir=out_dir))
     return jobs
 
 

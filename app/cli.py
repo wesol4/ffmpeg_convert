@@ -60,7 +60,8 @@ def cmd_image(a) -> int:
     keep = a.quality == "keep"
     quality = None if keep else int(a.quality)
     jobs = presets.build_image_jobs(files, quality=quality, keep=keep,
-                                    newname=a.name, subdir=not a.beside)
+                                    newname=a.name, subdir=not a.beside,
+                                    scale_pct=a.scale)
     return _run(jobs)
 
 
@@ -98,6 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--quality", default="2", choices=["1", "2", "5", "10", "keep"])
     pi.add_argument("--name", default="", help="nowa nazwa bazowa (numeracja); puste = oryginalne")
     pi.add_argument("--beside", action="store_true", help="zapisz obok oryginału (zamiast podfolderu)")
+    pi.add_argument("--scale", type=float, default=None,
+                    help="skaluj obrazy procentowo, np. 50 = połowa wymiarów (100 = bez zmian)")
     pi.add_argument("files", nargs="+")
     pi.set_defaults(func=cmd_image)
 

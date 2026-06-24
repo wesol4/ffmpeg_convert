@@ -143,6 +143,10 @@ class DropList(QListWidget):
 
 
 class ImagePanel(QWidget):
+    # Wartości, do których „przyciąga" suwak skali (procent oryginału).
+    # Suwak kończy na 100% — większe wartości można wpisać ręcznie w polu.
+    SNAP = [10, 25, 50, 75, 90, 100]
+
     def __init__(self):
         super().__init__()
         self.files = []
@@ -186,6 +190,40 @@ class ImagePanel(QWidget):
             olay.addWidget(rb)
         layout.addWidget(out_box)
 
+        scale_box = QGroupBox("Zmiana wielkości (procentowo)")
+        sclay = QVBoxLayout(scale_box)
+        row = QHBoxLayout()
+        self.scale_chk = QCheckBox("Skaluj do")
+        self.scale_chk.toggled.connect(self._update_preview)
+        row.addWidget(self.scale_chk)
+        self.scale_pct = QSpinBox()
+        self.scale_pct.setRange(1, 800)
+        self.scale_pct.setValue(50)
+        self.scale_pct.setSuffix(" %")
+        self.scale_pct.valueChanged.connect(self._on_scale_spin)
+        row.addWidget(self.scale_pct)
+        row.addWidget(QLabel("oryginału"))
+        row.addStretch()
+        sclay.addLayout(row)
+
+        # Suwak przyciągający do zdefiniowanych wartości — zakres to indeks
+        # listy SNAP, więc każdy „klik" ląduje dokładnie na jednej z nich.
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setRange(0, len(self.SNAP) - 1)
+        self.scale_slider.setValue(self._snap_index(50))
+        self.scale_slider.setTickPosition(QSlider.TicksBelow)
+        self.scale_slider.setTickInterval(1)
+        self.scale_slider.setSingleStep(1)
+        self.scale_slider.valueChanged.connect(self._on_scale_slider)
+        sclay.addWidget(self.scale_slider)
+
+        layout.addWidget(scale_box)
+        self.scale_box = scale_box
+        # Skalowanie sensowne tylko przy przekodowaniu — przy „zachowaj oryginał"
+        # kopiujemy plik 1:1, więc wyłączamy tę grupę.
+        self.rb_keep.toggled.connect(self._toggle_scale)
+        self._toggle_scale()
+
         layout.addStretch()
 
     def set_files(self, files):
@@ -194,6 +232,31 @@ class ImagePanel(QWidget):
 
     def _keep(self):
         return self.rb_keep.isChecked()
+
+    def _toggle_scale(self):
+        self.scale_box.setEnabled(not self.rb_keep.isChecked())
+
+    def _snap_index(self, value):
+        """Indeks najbliższej wartości z SNAP — do ustawienia suwaka."""
+        return min(range(len(self.SNAP)),
+                   key=lambda i: abs(self.SNAP[i] - value))
+
+    def _on_scale_slider(self, idx):
+        """Suwak → pole: ustaw dokładną wartość przyciągniętą (bez pętli zwrotnej)."""
+        self.scale_pct.blockSignals(True)
+        self.scale_pct.setValue(self.SNAP[idx])
+        self.scale_pct.blockSignals(False)
+        self._update_preview()
+
+    def _on_scale_spin(self, value):
+        """Pole → suwak: przyciągnij do najbliższej wartości z SNAP (cicho)."""
+        self.scale_slider.blockSignals(True)
+        self.scale_slider.setValue(self._snap_index(value))
+        self.scale_slider.blockSignals(False)
+        self._update_preview()
+
+    def _scale_pct(self):
+        return self.scale_pct.value() if self.scale_chk.isChecked() else None
 
     def _quality(self):
         if self.rb_q2.isChecked():
@@ -232,6 +295,7 @@ class ImagePanel(QWidget):
         return presets.build_image_jobs(
             self.files, quality=self._quality(), keep=keep,
             newname=self.name_edit.text().strip(), subdir=self.rb_subdir.isChecked(),
+            scale_pct=self._scale_pct(),
         )
 
 
