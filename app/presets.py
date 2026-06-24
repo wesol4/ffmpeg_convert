@@ -140,6 +140,20 @@ def probe_size(src: Path) -> Optional[tuple]:
         return None
 
 
+def probe_has_audio(src: Path) -> bool:
+    """Czy w pliku jest strumień audio (do estymacji bitrate 2-pass)."""
+    try:
+        out = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+             str(src)],
+            check=True, capture_output=True, text=True,
+        )
+        return bool(out.stdout.strip())
+    except Exception:
+        return False
+
+
 def _out_dir(src: Path, suffix: str, batch: bool) -> Path:
     """Przy batchu (>1 plik) zapisujemy do podfolderu, inaczej obok źródła."""
     return (src.parent / suffix) if batch else src.parent
@@ -171,7 +185,8 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     if not dur or dur <= 0:
         return crf_fallback("nie odczytano długości — CRF 23")
 
-    audio_k = 128
+    has_audio = probe_has_audio(src)
+    audio_k = 128 if has_audio else 0
     total_k = (target_mb * 8192) / dur  # MB → kbit/s całości
     video_k = max(50, int(total_k - audio_k))
     passlog = str(out_dir / f"{base}_ffmpeg2pass")
@@ -180,7 +195,10 @@ def _h264_size_job(src: Path, base: str, batch: bool,
              "-passlogfile", passlog, "-an", "-f", "null", os.devnull]
     pass2 = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
              "-preset", "slow", "-pix_fmt", "yuv420p", "-pass", "2",
-             "-passlogfile", passlog, "-c:a", "aac", "-b:a", f"{audio_k}k", str(out_path)]
+             "-passlogfile", passlog]
+    if has_audio:
+        pass2 += ["-c:a", "aac", "-b:a", f"{audio_k}k"]
+    pass2.append(str(out_path))
     return Job(
         label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo)",
         cmds=[pass1, pass2], mkdir=out_dir, duration=dur,

@@ -559,6 +559,24 @@ class MainWindow(QWidget):
 
     def start_conversion(self):
         self.log.clear()
+        # Odpór na plik usunięty mid-sesji: odrzuć niedostępne z logiem,
+        # zaktualizuj listę panelu, by nie trafiły do build_jobs.
+        gone = [f for f in self.files if not f.is_file()]
+        for f in gone:
+            self.log.appendPlainText(f"Pomijam (plik niedostępny): {f.name}")
+        if gone:
+            self.files = [f for f in self.files if f.is_file()]
+            panel0 = self.image_panel if self.kind == "image" else self.video_panel
+            panel0.set_files(self.files)
+            # odśwież wizualną listę (usuń usunięte pozycje)
+            self.drop_list.clear()
+            for f in self.files:
+                self.drop_list.addItem(QListWidgetItem(f"{ICON[self.kind]}   {f}"))
+            if not self.files:
+                self.log.appendPlainText("Brak plików do przetworzenia.")
+                self.convert_btn.setEnabled(False)
+                return
+
         panel = self.image_panel if self.kind == "image" else self.video_panel
         try:
             jobs = panel.build_jobs()

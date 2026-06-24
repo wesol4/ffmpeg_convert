@@ -112,7 +112,7 @@ REM --- Python: winget, a gdy brak/bled - reczne pobranie instalatora --------
 :INST_PYTHON
 echo [Python] probe winget ...
 where winget >nul 2>&1 || goto :PY_MANUAL
-winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements
+winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
 if errorlevel 1 goto :PY_MANUAL
 call :REFRESH_PATH
 call :DETECT_PY
@@ -142,7 +142,7 @@ REM --- ffmpeg: winget, a gdy brak/bled - reczne pobranie zip + PATH ----------
 :INST_FFMPEG
 echo [ffmpeg] probe winget ...
 where winget >nul 2>&1 || goto :FF_MANUAL
-winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements --disable-interactivity
 if errorlevel 1 goto :FF_MANUAL
 call :REFRESH_PATH
 where ffmpeg >nul 2>&1 && ( echo [ffmpeg] zainstalowany przez winget. & goto :eof )

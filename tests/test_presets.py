@@ -72,7 +72,8 @@ class TestH264Size(unittest.TestCase):
 
     def test_size_mode_two_pass(self):
         src = Path("/tmp/v.mov")
-        with mock.patch.object(presets, "probe_duration", return_value=10.0):
+        with mock.patch.object(presets, "probe_duration", return_value=10.0), \
+             mock.patch.object(presets, "probe_has_audio", return_value=True):
             jobs = presets.build_video_jobs("h264size", [src],
                                             size_mode="size", target_mb=25)
         job = jobs[0]
@@ -84,9 +85,23 @@ class TestH264Size(unittest.TestCase):
         self.assertIn(os.devnull, job.cmds[0])  # wyjście pass1 → null
         # bitrate wideo = max(50, 25*8192/10 - 128) = 20352
         self.assertIn("20352k", job.cmds[0])
+        # pass2 koduje audio (128k)
+        self.assertIn("-c:a", job.cmds[1])
+        self.assertIn("128k", job.cmds[1])
         # cleanup logi 2-pass
         cleanup_names = [Path(p).name for p in job.cleanup]
         self.assertTrue(any("ffmpeg2pass" in n for n in cleanup_names))
+
+    def test_size_mode_no_audio_no_audio_reserve(self):
+        src = Path("/tmp/v.mov")
+        with mock.patch.object(presets, "probe_duration", return_value=10.0), \
+             mock.patch.object(presets, "probe_has_audio", return_value=False):
+            jobs = presets.build_video_jobs("h264size", [src],
+                                            size_mode="size", target_mb=25)
+        job = jobs[0]
+        # bez audio: całe 25*8192/10 = 20480 na wideo, pass2 bez -c:a
+        self.assertIn("20480k", job.cmds[0])
+        self.assertNotIn("-c:a", job.cmds[1])
 
     def test_size_mode_falls_back_when_no_duration(self):
         src = Path("/tmp/v.mov")
