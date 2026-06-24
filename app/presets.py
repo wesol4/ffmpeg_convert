@@ -50,6 +50,7 @@ class Job:
     cmds: list
     mkdir: Optional[Path] = None
     cleanup: list = field(default_factory=list)
+    duration: Optional[float] = None  # sekundy; dla realnego postępu w runnerze
 
 
 # --------------------------------------------------------------------------
@@ -150,26 +151,28 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     out_dir = _out_dir(src, "H264", batch)
     out_path = out_dir / f"{base}_H264.mp4"
     rel = out_path.relative_to(src.parent)
+    dur = probe_duration(src)
 
     def crf_fallback(reason: str) -> Job:
         cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-crf", "23",
                "-preset", "slow", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-b:a", "192k", str(out_path)]
-        return Job(label=f"{src.name} → {rel} ({reason})", cmds=[cmd], mkdir=out_dir)
+        return Job(label=f"{src.name} → {rel} ({reason})", cmds=[cmd],
+                   mkdir=out_dir, duration=dur)
 
     if size_mode == "crf":
         cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-crf", str(crf),
                "-preset", "slow", "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-b:a", "192k", str(out_path)]
-        return Job(label=f"{src.name} → {rel} (CRF {crf})", cmds=[cmd], mkdir=out_dir)
+        return Job(label=f"{src.name} → {rel} (CRF {crf})", cmds=[cmd],
+                   mkdir=out_dir, duration=dur)
 
     # Tryb docelowego rozmiaru: bitrate wideo liczony z czasu trwania.
-    duration = probe_duration(src)
-    if not duration or duration <= 0:
+    if not dur or dur <= 0:
         return crf_fallback("nie odczytano długości — CRF 23")
 
     audio_k = 128
-    total_k = (target_mb * 8192) / duration  # MB → kbit/s całości
+    total_k = (target_mb * 8192) / dur  # MB → kbit/s całości
     video_k = max(50, int(total_k - audio_k))
     passlog = str(out_dir / f"{base}_ffmpeg2pass")
     pass1 = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
@@ -180,7 +183,7 @@ def _h264_size_job(src: Path, base: str, batch: bool,
              "-passlogfile", passlog, "-c:a", "aac", "-b:a", f"{audio_k}k", str(out_path)]
     return Job(
         label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo)",
-        cmds=[pass1, pass2], mkdir=out_dir,
+        cmds=[pass1, pass2], mkdir=out_dir, duration=dur,
         cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")],
     )
 
@@ -198,7 +201,7 @@ def _frames_job(src: Path, base: str, frames_format: str, with_wav: bool) -> Job
         cmds.append([FFMPEG, "-y", "-i", str(src), "-vn", "-c:a", "pcm_s24le", str(wav_path)])
         label += " + WAV"
     label += ")"
-    return Job(label=label, cmds=cmds, mkdir=frames_dir)
+    return Job(label=label, cmds=cmds, mkdir=frames_dir, duration=probe_duration(src))
 
 
 def build_video_jobs(preset: str, files, *, size_mode: str = "crf", crf: int = 23,
@@ -217,14 +220,15 @@ def build_video_jobs(preset: str, files, *, size_mode: str = "crf", crf: int = 2
             cmd = [FFMPEG, "-y", "-i", str(src), *spec["args"], str(out_path)]
             jobs.append(Job(
                 label=f"{src.name} → {out_path.relative_to(src.parent)}",
-                cmds=[cmd], mkdir=out_dir,
+                cmds=[cmd], mkdir=out_dir, duration=probe_duration(src),
             ))
         elif preset == "h264size":
             jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb))
         elif preset == "last_frame":
             out_path = src.parent / f"{base}_last.png"
             cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), "-update", "1", str(out_path)]
-            jobs.append(Job(label=f"{src.name} → {out_path.name}", cmds=[cmd], mkdir=src.parent))
+            jobs.append(Job(label=f"{src.name} → {out_path.name}", cmds=[cmd],
+                            mkdir=src.parent, duration=probe_duration(src)))
         elif preset == "frames":
             jobs.append(_frames_job(src, base, frames_format, frames_with_wav))
         else:
@@ -356,7 +360,8 @@ def build_seq_job(files, *, fps: int = 24, fmt: str = "h264") -> Job:
     label = f"{len(paths)} klatek @ {fps} fps → {out_path.name}"
     if audio:
         label += f" (+ audio {audio.name})"
-    return Job(label=label, cmds=[cmd], mkdir=out_dir, cleanup=[tmp])
+    return Job(label=label, cmds=[cmd], mkdir=out_dir, cleanup=[tmp],
+               duration=len(paths) / fps if fps else None)
 
 
 def _natural_key(s: str):

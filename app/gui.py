@@ -409,7 +409,7 @@ class VideoPanel(QWidget):
 
 class ConvertWorker(QThread):
     log = pyqtSignal(str)
-    progress = pyqtSignal(int, int)
+    percent = pyqtSignal(float)
     done = pyqtSignal()
 
     def __init__(self, jobs):
@@ -420,7 +420,7 @@ class ConvertWorker(QThread):
         runner.run_jobs(
             self.jobs,
             on_log=self.log.emit,
-            on_progress=lambda cur, total: self.progress.emit(cur, total),
+            on_percent=lambda frac: self.percent.emit(frac),
         )
         self.done.emit()
 
@@ -572,17 +572,18 @@ class MainWindow(QWidget):
 
         self.convert_btn.setEnabled(False)
         self.progress.setVisible(True)
-        self.progress.setMaximum(len(jobs))
+        self.progress.setMaximum(100)
         self.progress.setValue(0)
 
         self.worker = ConvertWorker(jobs)
         self.worker.log.connect(self.log.appendPlainText)
-        self.worker.progress.connect(lambda cur, _total: self.progress.setValue(cur))
+        self.worker.percent.connect(lambda frac: self.progress.setValue(int(frac * 100)))
         self.worker.done.connect(self._on_done)
         self.worker.start()
 
     def _on_done(self):
         self.convert_btn.setEnabled(True)
+        self.progress.setValue(100)
         self.log.appendPlainText("=== Gotowe ===")
 
 

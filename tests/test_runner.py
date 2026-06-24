@@ -96,5 +96,70 @@ class TestRunJobs(unittest.TestCase):
         self.assertEqual(runner.run_jobs([]), 0)
 
 
+class TestOutTimeParser(unittest.TestCase):
+    def test_out_time_us(self):
+        self.assertEqual(runner._out_time_us("frame= 10 out_time_us=2500000"), 2500000)
+
+    def test_out_time_timestamp(self):
+        self.assertEqual(runner._out_time_us("out_time=00:00:02.500"), 2_500_000)
+
+    def test_legacy_out_time_ms(self):
+        self.assertEqual(runner._out_time_us("out_time_ms=1500000"), 1_500_000)
+
+    def test_no_match(self):
+        self.assertIsNone(runner._out_time_us("Press [q] to quit"))
+
+
+def _make_src_video(path: Path, seconds: float = 3.0):
+    """Wygeneruj realne krótkie wideo (do testów postępu)."""
+    import subprocess
+    subprocess.run([presets.FFMPEG, "-y", "-f", "lavfi", "-i",
+                    f"color=blue:size=16x16:duration={seconds}", "-r", "10",
+                    str(path)], check=True, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL)
+
+
+class TestProgress(unittest.TestCase):
+    def test_run_job_reports_progress(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "src.mp4"
+            _make_src_video(src, 3.0)
+            job = presets.build_video_jobs("h264", [src])[0]
+            self.assertIsNotNone(job.duration)
+            self.assertGreater(job.duration, 2.0)
+            self.assertLess(job.duration, 4.0)
+            fracs = []
+            runner.run_job(job, on_percent=fracs.append)
+            self.assertTrue(fracs)                      # coś zgłoszone
+            self.assertAlmostEqual(fracs[-1], 1.0, places=2)  # job ukończony
+            self.assertLessEqual(max(fracs), 1.0 + 1e-6)
+            self.assertGreaterEqual(min(fracs), 0.0)
+            # niemalejący
+            self.assertEqual(fracs, sorted(fracs))
+
+    def test_run_jobs_overall_progress(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "src.mp4"
+            _make_src_video(src, 2.0)
+            jobs = presets.build_video_jobs("h264", [src])
+            overall = []
+            runner.run_jobs(jobs, on_percent=overall.append)
+            self.assertTrue(overall)
+            self.assertAlmostEqual(overall[-1], 1.0, places=2)
+
+    def test_image_job_no_duration_still_completes(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "a.png"
+            src.write_bytes(b"\x89PNG\r\n\x1a\n")  # fałszywy plik (wystarczy do copy)
+            fracs = []
+            job = presets.Job(label="t", cmds=[["__copy__", str(src), str(d / "b.png")]],
+                              duration=None)
+            runner.run_job(job, on_percent=fracs.append)
+            self.assertEqual(fracs, [1.0])  # copy → jednorazowo 1.0
+
+
 if __name__ == "__main__":
     unittest.main()
