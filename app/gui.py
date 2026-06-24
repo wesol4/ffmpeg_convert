@@ -606,6 +606,16 @@ class MainWindow(QWidget):
 
 
 def main(files=None) -> int:
+    # Guard na przestarzałą kopię app/: stary, płaski presets.py (sprzed
+    # refaktoru pakietowego) przykrywa nowy pakiet app/presets/ — wtedy brakuje
+    # presets.VideoPreset i GUI cicho traci m.in. suwak h264size. Wybij się
+    # czytelnym komunikatem zamiast półdziałającego okna.
+    if not hasattr(presets, "VideoPreset"):
+        print("BŁĄD: niezgodna wersja rdzenia app/ — brak presets.VideoPreset.\n"
+              "Przekopiuj cały folder app/ na nowo (stary presets.py przykrywa "
+              "pakiet presets/). Uruchom win\\setup.bat i wybierz 3 (Skopiuj app\\).",
+              file=sys.stderr)
+        return 1
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE)
     win = MainWindow()

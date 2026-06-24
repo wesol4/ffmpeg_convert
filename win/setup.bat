@@ -169,7 +169,10 @@ REM  Opcja 3 - kopia folderu app\ (skrypt lezy w win\, zrodlem jest ..\app).
 REM ===========================================================================
 :COPY_APP
 if not exist "%~dp0..\app" ( echo [app] brak folderu app\ obok setup.bat - uruchom z kopia repo. & goto :eof )
-robocopy "%~dp0..\app" "%USERPROFILE%\scripts\app" /E /NFL /NDL /NJH /NJS /NP >nul
+REM /MIR = /E + /PURGE: usuwa w celu pliki, ktorych juz nie ma w zrodle (np.
+REM stary, plaski presets.py sprzed refaktoru pakietowego — bez tego przykrywalby
+REM nowy pakiet app\presets\ i psul GUI). /XD __pycache__ /XF *.pyc — bez smieci.
+robocopy "%~dp0..\app" "%USERPROFILE%\scripts\app" /MIR /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 ( echo [app] blad kopiowania. ) else echo [app] skopiowano do %USERPROFILE%\scripts\app\
 goto :eof
 
