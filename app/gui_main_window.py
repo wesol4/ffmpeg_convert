@@ -21,6 +21,9 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FFmpeg Convert")
+        # Okno bez systemowego paska tytułowego (brak X/min/max). Zamykanie przez
+        # własny przycisk ✕ w nagłówku; przesuwanie przez chwyt nagłówka (drag).
+        self.setWindowFlags(Qt.FramelessWindowHint)
         # Nie otwieraj okna większego niż dostępny ekran — inaczej dolny pasek
         # z przyciskiem "Konwertuj" wychodzi poza krawędź i nie da się go kliknąć.
         avail = QApplication.primaryScreen().availableGeometry()
@@ -30,6 +33,7 @@ class MainWindow(QWidget):
         self.kind = None
         self.worker = None
         self._update_checker = None
+        self._drag_pos = None  # pozycja chwytu do przesuwania okna za nagłówek
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -41,6 +45,10 @@ class MainWindow(QWidget):
         help_menu.addAction("Sprawdź aktualizacje…", self.check_updates)
         layout.addWidget(menubar)
 
+        # Wiersz nagłówka: tytuł+podtytuł po lewej, przycisk zamykania po prawej.
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(12)
         header = QVBoxLayout()
         header.setSpacing(2)
         title = QLabel("FFmpeg Convert")
@@ -49,7 +57,16 @@ class MainWindow(QWidget):
         subtitle.setObjectName("Subtitle")
         header.addWidget(title)
         header.addWidget(subtitle)
-        layout.addLayout(header)
+        top_row.addLayout(header)
+        top_row.addStretch()
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("Close")
+        close_btn.setFixedSize(30, 30)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setToolTip("Zamknij")
+        close_btn.clicked.connect(self.close)
+        top_row.addWidget(close_btn)
+        layout.addLayout(top_row)
 
         # Przewijalna część środkowa — przycisk "Konwertuj" zawsze widoczny na dole.
         scroll = QScrollArea()
@@ -211,3 +228,18 @@ class MainWindow(QWidget):
 
     def _on_update_result(self, msg):
         QMessageBox.information(self, "Aktualizacje", msg)
+
+    # --- Przesuwanie okna bez paska tytułowego (chwyt za nagłówek) ---
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()
