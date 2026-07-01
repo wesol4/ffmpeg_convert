@@ -61,11 +61,11 @@ goto :eof
 :DETECT_PY
 set "_V="
 for /f "delims=" %%V in ('python --version 2^>nul') do set "_V=%%V"
-echo !_V! | findstr /b "Python " >nul && set "PY=python"
+echo !_V! | findstr /r /b "Python [0-9]\." >nul && set "PY=python"
 if defined PY goto :eof
 set "_V="
 for /f "delims=" %%V in ('py -3 --version 2^>nul') do set "_V=%%V"
-echo !_V! | findstr /b "Python " >nul && set "PY=py -3"
+echo !_V! | findstr /r /b "Python [0-9]\." >nul && set "PY=py -3"
 goto :eof
 
 REM ===========================================================================
@@ -112,7 +112,7 @@ REM --- Python: winget, a gdy brak/bled - reczne pobranie instalatora --------
 :INST_PYTHON
 echo [Python] probe winget ...
 where winget >nul 2>&1 || goto :PY_MANUAL
-winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
+winget install --id Python.Python.3.12 -e --source winget --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
 if errorlevel 1 goto :PY_MANUAL
 call :REFRESH_PATH
 call :DETECT_PY
@@ -142,18 +142,27 @@ REM --- ffmpeg: winget, a gdy brak/bled - reczne pobranie zip + PATH ----------
 :INST_FFMPEG
 echo [ffmpeg] probe winget ...
 where winget >nul 2>&1 || goto :FF_MANUAL
-winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements --disable-interactivity
+winget install --id Gyan.FFmpeg -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
 if errorlevel 1 goto :FF_MANUAL
 call :REFRESH_PATH
 where ffmpeg >nul 2>&1 && ( echo [ffmpeg] zainstalowany przez winget. & goto :eof )
 :FF_MANUAL
 echo [ffmpeg] instalacja reczna ...
+set "FFZIP=%TEMP%\ffmpeg.zip"
+if exist "%FFZIP%" del "%FFZIP%" >nul 2>&1
 set "FFURL=https://www.gyan.dev/builds/ffmpeg-release-essentials.zip"
-curl -L -o "%TEMP%\ffmpeg.zip" "%FFURL%" || ( echo [ffmpeg] blad pobierania. & goto :eof )
+curl -L --fail -o "%FFZIP%" "%FFURL%"
+call :FF_ZIP_OK && goto :FF_EXTRACT
+echo [ffmpeg] zrodlo gyan.dev nie odpowiedzialo zipem - proba fallback BtbN ...
+if exist "%FFZIP%" del "%FFZIP%" >nul 2>&1
+set "FFURL=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+curl -L --fail -o "%FFZIP%" "%FFURL%"
+call :FF_ZIP_OK || ( echo [ffmpeg] blad pobierania - zaden ze zrodel nie dal poprawnego zipa. & del "%FFZIP%" >nul 2>&1 & goto :eof )
+:FF_EXTRACT
 if exist "%USERPROFILE%\ffmpeg" rmdir /s /q "%USERPROFILE%\ffmpeg"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force -LiteralPath '%TEMP%\ffmpeg.zip' -DestinationPath '%USERPROFILE%\ffmpeg'"
-del "%TEMP%\ffmpeg.zip" >nul 2>&1
-REM Zip gyan rozpakowuje sie do podfolderu; szukamy bin\ffmpeg.exe.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force -LiteralPath '%FFZIP%' -DestinationPath '%USERPROFILE%\ffmpeg'"
+del "%FFZIP%" >nul 2>&1
+REM Zip (gyan / BtbN) rozpakowuje sie do podfolderu; szukamy bin\ffmpeg.exe.
 set "FFROOT=%USERPROFILE%\ffmpeg"
 if not exist "%FFROOT%\bin\ffmpeg.exe" (
   for /d %%D in ("%USERPROFILE%\ffmpeg\*") do if exist "%%D\bin\ffmpeg.exe" set "FFROOT=%%D"
@@ -163,6 +172,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=[Environment]::GetEnv
 call :REFRESH_PATH
 where ffmpeg >nul 2>&1 && ( echo [ffmpeg] zainstalowany recznie. ) else echo [ffmpeg] NIE UDALO SIE - sprawdz PATH.
 goto :eof
+
+REM Walidacja pobranego zipa: min. 2 MB + sygnatura 'PK' (0x50 0x4B) na poczatku.
+REM Odrzuca HTML/strony bledu (np. 1719 bajtow z gyan.dev) przed rozpakowywaniem.
+:FF_ZIP_OK
+if not exist "%FFZIP%" exit /b 1
+for %%S in ("%FFZIP%") do set "FFSIZE=%%~zS"
+if !FFSIZE! LSS 2000000 exit /b 1
+powershell -NoProfile -Command "$fs=[IO.File]::OpenRead('%FFZIP%'); $b=New-Object byte[] 2; $null=$fs.Read($b,0,2); $fs.Close(); if($b[0] -ne 0x50 -or $b[1] -ne 0x4B){exit 1}" || exit /b 1
+exit /b 0
 
 REM ===========================================================================
 REM  Opcja 3 - kopia folderu app\ (skrypt lezy w win\, zrodlem jest ..\app).
