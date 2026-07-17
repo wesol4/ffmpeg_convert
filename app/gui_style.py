@@ -1,7 +1,7 @@
 """Styl (QSS) i ikony GUI — bez zależności od klas Qt (same stałe)."""
 from __future__ import annotations
 
-ICON = {"image": "🖼", "video": "🎬"}
+ICON = {"image": "🖼", "video": "🎬", "seq": "🎞"}
 
 APP_STYLE = """
 * { font-family: "Inter", "Ubuntu", "Segoe UI", sans-serif; }

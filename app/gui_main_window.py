@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app import presets
-from app.gui_panels import ImagePanel, VideoPanel
+from app.gui_panels import ImagePanel, SeqPanel, VideoPanel
 from app.gui_style import ICON
 from app.gui_widgets import DropList
 from app.gui_workers import ConvertWorker, UpdateChecker
@@ -88,10 +88,14 @@ class MainWindow(QWidget):
         add_btn = QPushButton("Dodaj pliki…")
         add_btn.setObjectName("Secondary")
         add_btn.clicked.connect(self.choose_files)
+        add_folders_btn = QPushButton("Dodaj foldery…")
+        add_folders_btn.setObjectName("Secondary")
+        add_folders_btn.clicked.connect(self.choose_folders)
         clear_btn = QPushButton("Wyczyść listę")
         clear_btn.setObjectName("Secondary")
         clear_btn.clicked.connect(self.clear_files)
         btn_row.addWidget(add_btn)
+        btn_row.addWidget(add_folders_btn)
         btn_row.addWidget(clear_btn)
         btn_row.addStretch()
         content_layout.addLayout(btn_row)
@@ -102,9 +106,11 @@ class MainWindow(QWidget):
         self.empty_page.setAlignment(Qt.AlignCenter)
         self.image_panel = ImagePanel()
         self.video_panel = VideoPanel()
+        self.seq_panel = SeqPanel()
         self.stack.addWidget(self.empty_page)
         self.stack.addWidget(self.image_panel)
         self.stack.addWidget(self.video_panel)
+        self.stack.addWidget(self.seq_panel)
         content_layout.addWidget(self.stack)
         content_layout.addStretch()
 
@@ -135,6 +141,23 @@ class MainWindow(QWidget):
         if paths:
             self.add_files([Path(p) for p in paths])
 
+    def choose_folders(self):
+        # Nie-natywny dialog katalogów z multi-wyborem (natywny pozwala tylko
+        # na jeden folder). Włączamy ExtendedSelection na wewnętrznych widokach.
+        from PyQt5.QtWidgets import QAbstractItemView, QListView, QTreeView
+        dlg = QFileDialog(self, "Wybierz foldery z sekwencjami klatek")
+        dlg.setFileMode(QFileDialog.Directory)
+        dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+        dlg.setOption(QFileDialog.ShowDirsOnly, True)
+        for view in (dlg.findChild(QListView, "listView"),
+                     dlg.findChild(QTreeView, "treeView")):
+            if view is not None:
+                view.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        if dlg.exec_():
+            paths = [Path(u.toLocalFile()) for u in dlg.selectedUrls()]
+            if paths:
+                self.add_files(paths)
+
     def clear_files(self):
         self.files = []
         self.kind = None
@@ -146,7 +169,8 @@ class MainWindow(QWidget):
     def add_files(self, paths):
         for p in paths:
             p = Path(p)
-            k = presets.kind_of(p)
+            # Folder = tryb sekwencji (jeden mp4 na folder); plik → wg rozszerzenia.
+            k = "seq" if p.is_dir() else presets.kind_of(p)
             if k == "other":
                 self.log.appendPlainText(f"Pomijam (nieobsługiwany format): {p.name}")
                 continue
@@ -167,23 +191,32 @@ class MainWindow(QWidget):
         if self.kind == "image":
             self.image_panel.set_files(self.files)
             self.stack.setCurrentWidget(self.image_panel)
-        else:
+        elif self.kind == "video":
             self.video_panel.set_files(self.files)
             self.stack.setCurrentWidget(self.video_panel)
+        else:  # "seq"
+            self.seq_panel.set_folders(self.files)
+            self.stack.setCurrentWidget(self.seq_panel)
 
         self.convert_btn.setEnabled(True)
 
     def start_conversion(self):
         self.log.clear()
-        # Odpór na plik usunięty mid-sesji: odrzuć niedostępne z logiem,
-        # zaktualizuj listę panelu, by nie trafiły do build_jobs.
-        gone = [f for f in self.files if not f.is_file()]
+        # Odpór na plik/folder usunięty mid-sesji: odrzuć niedostępne z logiem,
+        # zaktualizuj listę panelu, by nie trafiły do build_jobs. Foldery (seq)
+        # sprawdzamy is_dir(); pliki — is_file().
+        is_folder_mode = self.kind == "seq"
+        exists = (lambda f: f.is_dir()) if is_folder_mode else (lambda f: f.is_file())
+        gone = [f for f in self.files if not exists(f)]
         for f in gone:
-            self.log.appendPlainText(f"Pomijam (plik niedostępny): {f.name}")
+            self.log.appendPlainText(f"Pomijam (niedostępny): {f.name}")
         if gone:
-            self.files = [f for f in self.files if f.is_file()]
-            panel0 = self.image_panel if self.kind == "image" else self.video_panel
-            panel0.set_files(self.files)
+            self.files = [f for f in self.files if exists(f)]
+            if is_folder_mode:
+                self.seq_panel.set_folders(self.files)
+            else:
+                panel0 = self.image_panel if self.kind == "image" else self.video_panel
+                panel0.set_files(self.files)
             # odśwież wizualną listę (usuń usunięte pozycje)
             self.drop_list.clear()
             for f in self.files:
@@ -193,7 +226,9 @@ class MainWindow(QWidget):
                 self.convert_btn.setEnabled(False)
                 return
 
-        panel = self.image_panel if self.kind == "image" else self.video_panel
+        panel = (self.seq_panel if self.kind == "seq"
+                 else self.image_panel if self.kind == "image"
+                 else self.video_panel)
         try:
             jobs = panel.build_jobs()
         except Exception as exc:

@@ -9,6 +9,7 @@ Przykłady:
   cli.py video --preset h264size --target-mb 25 plik.mov
   cli.py image --quality 2 --name render *.png
   cli.py seq   --fps 24 --format h264 klatka_*.png
+  cli.py seq   --fps 24 --format h264 --target-mb 45 klatka_*.png
   cli.py gui   plik.mov              # otwórz GUI z wczytanymi plikami
 """
 from __future__ import annotations
@@ -62,13 +63,39 @@ def cmd_image(a) -> int:
     quality = None if keep else int(a.quality)
     jobs = presets.build_image_jobs(files, quality=quality, keep=keep,
                                     newname=a.name, subdir=not a.beside,
-                                    scale_pct=a.scale)
+                                    scale_pct=a.scale, color=not a.no_color)
     return _run(jobs)
 
 
 def cmd_seq(a) -> int:
-    files = _existing(a.files)
-    return _run([presets.build_seq_job(files, fps=a.fps, fmt=a.format, encoder=a.encoder)])
+    # Katalogi jako argumenty → tryb batch: jeden mp4 na folder (+ opcjonalnie
+    # miniaturka i proxy). Luźne pliki → dotychczasowy pojedynczy mp4 z sekwencji.
+    from app.core.color import set_aces_lut
+    set_aces_lut(a.aces_lut)  # nadpisz LUT ACES (np. wyeksportowany z Nuke); None=wbudowany
+    dirs = [Path(f) for f in a.files if Path(f).is_dir()]
+    loose = [f for f in a.files if not Path(f).is_dir()]
+    # Miniaturka wymaga mp4 — gdy --no-mp4, ignorujemy --thumb z ostrzeżeniem.
+    thumb = a.thumb if (a.thumb and not a.no_mp4) else None
+    if a.thumb and a.no_mp4:
+        print("--thumb wymaga mp4 (miniaturka = klatka z mp4); ignoruję --thumb.",
+              file=sys.stderr)
+    size_mode = "size" if a.target_mb else "crf"
+    if dirs:
+        jobs = presets.build_seq_jobs_from_folders(
+            dirs, fps=a.fps, fmt=a.format, encoder=a.encoder,
+            color=not a.no_color, mp4_in_seq=not a.mp4_in_parent,
+            thumb_width=thumb, make_mp4=not a.no_mp4,
+            proxy_variants=(a.proxy or []), proxy_start_frame=a.proxy_start,
+            size_mode=size_mode, crf=a.crf,
+            target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default))
+        return _run(jobs)
+    files = _existing(loose)
+    return _run([presets.build_seq_job(
+        files, fps=a.fps, fmt=a.format, encoder=a.encoder, color=not a.no_color,
+        make_mp4=not a.no_mp4, proxy_variants=(a.proxy or []),
+        proxy_start_frame=a.proxy_start,
+        size_mode=size_mode, crf=a.crf,
+        target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default))])
 
 
 def cmd_split(a) -> int:
@@ -136,14 +163,39 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--beside", action="store_true", help="zapisz obok oryginału (zamiast podfolderu)")
     pi.add_argument("--scale", type=float, default=None,
                     help="skaluj obrazy procentowo, np. 50 = połowa wymiarów (100 = bez zmian)")
+    pi.add_argument("--no-color", action="store_true",
+                    help="nie nakładaj OETF dla EXR (linear) — zostaw surowe wartości")
     pi.add_argument("files", nargs="+")
     pi.set_defaults(func=cmd_image)
 
-    ps = sub.add_parser("seq", help="sekwencja obrazów → wideo")
+    ps = sub.add_parser("seq", help="sekwencja obrazów → wideo / proxy")
     ps.add_argument("--fps", type=int, default=presets.CONFIG.seq.default_fps)
     ps.add_argument("--format", default="h264", choices=[f.value for f in presets.SeqFormat])
     ps.add_argument("--encoder", default="cpu", choices=[e.value for e in presets.Encoder],
                     help="enkoder dla h264/h265: cpu / nvenc / qsv / amf")
+    ps.add_argument("--target-mb", type=float, default=None,
+                    help="dla H.264: docelowy rozmiar pliku w MB (CPU 2-pass); zamiast CRF")
+    ps.add_argument("--crf", type=int, default=presets.CONFIG.h264size.crf_default,
+                    help="dla H.264 w trybie CRF (gdy nie podano --target-mb)")
+    ps.add_argument("--no-color", action="store_true",
+                    help="dla sekwencji EXR nie nakładaj OETF sRGB (linear→display)")
+    ps.add_argument("--mp4-in-parent", action="store_true",
+                    help="tryb folderów: zapisz mp4 w folderze nadrzędnym (zamiast w folderze sekwencji)")
+    ps.add_argument("--thumb", type=int, default=0,
+                    help="tryb folderów: szerokość miniaturki w px (0 = wyłączone); "
+                         "klatka z połowy mp4, zapis w folderze nadrzędnym")
+    ps.add_argument("--no-mp4", action="store_true",
+                    help="pomiń mp4 — generuj tylko proxy (miniaturka wymaga mp4)")
+    ps.add_argument("--proxy", action="append", default=None,
+                    choices=[v.key for v in presets.CONFIG.seq.proxy_variants],
+                    help="generuj sekwencję proxy (klatki numerowane od --proxy-start); "
+                         "powtarzaj per wariant: jpg / png16 / half")
+    ps.add_argument("--proxy-start", type=int,
+                    default=presets.CONFIG.seq.proxy_start_frame,
+                    help="początkowy numer klatki proxy (standard VFX: 1001)")
+    ps.add_argument("--aces-lut", default=None,
+                    help="własny LUT ACES (.cube) zamiast wbudowanego — np. wyeksportowany "
+                         "z Nuke 'sRGB Display' (ACES 2.0); wejście AP0 linear -> sRGB display")
     ps.add_argument("files", nargs="+")
     ps.set_defaults(func=cmd_seq)
 

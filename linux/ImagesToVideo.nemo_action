@@ -1,8 +1,8 @@
 [Nemo Action]
-Name=Utwórz wideo z klatek
-Comment=Złącz zaznaczone obrazy w plik wideo (FFmpeg)
-Exec=gnome-terminal -- bash -c '__HOME__/.local/bin/images_to_video.sh "$@"; read -p "ENTER aby zamknąć..."' -- %F
+Name=Konwertuj wideo z klatek (FFmpeg GUI)
+Comment=Otwórz FFmpeg Convert GUI z zaznaczonym folderem / klatkami
+Exec=__GUI__ %F
 Icon-Name=video-x-generic
 Selection=Any
 Extensions=png;PNG;jpg;JPG;jpeg;JPEG;tif;TIF;tiff;TIFF;exr;EXR
-Terminal=true
+Terminal=false

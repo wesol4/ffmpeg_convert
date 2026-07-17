@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,34 @@ def probe_has_audio(src: Path) -> bool:
         return bool(out.stdout.strip())
     except Exception:
         return False
+
+
+@lru_cache(maxsize=1)
+def available_filters() -> frozenset:
+    """Zbiór nazw dostępnych filtrów wideo (`ffmpeg -filters`), cached.
+
+    Pusty zbiór przy braku ffmpeg — wołający traktują to jako „filtr niedostępny".
+    Używane do guardowania zscale (zimg) — bez niego EXR→display pipeline jest
+    pomijany (graceful), by nie crashować na buildach bez libzimg.
+    """
+    try:
+        out = subprocess.run([FFMPEG, "-hide_banner", "-filters"],
+                             capture_output=True, text=True, check=False)
+    except Exception:
+        return frozenset()
+    names = set()
+    for line in out.stdout.splitlines():
+        # Linia filtra: " ...T. name        V->V       opis". Nazwa to 2. token.
+        # Pomijamy nagłówek ("Filters:" itd.) bez typowych znaczników flag.
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isidentifier():
+            names.add(parts[1])
+    return frozenset(names)
+
+
+def has_filter(name: str) -> bool:
+    """Czy dany filtr wideo jest dostępny w buildie ffmpeg (np. 'zscale')."""
+    return name in available_filters()
 
 
 def probe_encoders() -> set:

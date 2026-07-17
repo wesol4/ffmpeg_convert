@@ -35,7 +35,7 @@ def _scale_filter(scale_pct: Optional[float]) -> Optional[str]:
 
 def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = False,
                      newname: str = "", subdir: bool = True,
-                     scale_pct: Optional[float] = None) -> list:
+                     scale_pct: Optional[float] = None, color: bool = True) -> list:
     """Joby dla obrazów. quality=None lub keep=True → kopiuj oryginał.
 
     Kompresji do JPG poddajemy DOWOLNY obraz rastrowy (nie tylko PNG) — FFmpeg
@@ -43,6 +43,11 @@ def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = Fa
 
     scale_pct — opcjonalne skalowanie procentowe (np. 50 = połowa wymiarów),
     stosowane tylko przy przekodowaniu (nie przy „zachowaj oryginał").
+
+    color — dla EXR (scene-referred linear) nakładaj OETF sRGB (iec61966-2-1) + tagi
+    koloru (CONFIG.color), by JPG nie wyszedł za ciemny w dekoderach bez color
+    management (Nuke zakłada sRGB dla JPG 8-bit). Wymaga zscale; bez niego degrade
+    do zwykłego format=yuvj420p.
     """
     files = [Path(f) for f in files]
     jobs: list = []
@@ -61,11 +66,21 @@ def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = Fa
             jobs.append(Job(label=f"{path.name} → {out_path.name}",
                             cmds=[["__copy__", str(path), str(out_path)]], mkdir=out_dir))
         else:
-            vf = "format=yuvj420p" if not scale else f"{scale},format=yuvj420p"
+            # EXR (linear) → sRGB display przez exr_color_vf (ACES LUT lub zscale lin709);
+            # None = nie-EXR / color=False / brak zscale(LUT) → sam format=yuvj420p.
+            from app.core.color import exr_color_vf
+            cvf, extra, color_tag = exr_color_vf(scale, color,
+                                                  path.suffix.lstrip("."), "jpg")
+            if cvf is None:
+                vf = "format=yuvj420p" if not scale else f"{scale},format=yuvj420p"
+                extra, color_tag = [], ""
+            else:
+                vf = cvf
             cmd = [FFMPEG, "-y", "-loglevel", "error", "-i", str(path),
-                   "-q:v", str(quality), "-vf", vf, str(out_path)]
+                   "-q:v", str(quality), "-vf", vf, *extra, str(out_path)]
             tag = f" (skala {scale_pct:g}%)" if scale else ""
-            jobs.append(Job(label=f"{path.name} → {out_path.name}{tag}", cmds=[cmd], mkdir=out_dir))
+            jobs.append(Job(label=f"{path.name} → {out_path.name}{tag}{color_tag}",
+                            cmds=[cmd], mkdir=out_dir))
     return jobs
 
 

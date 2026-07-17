@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QFrame, QListWidget
 
 class DropList(QListWidget):
     filesDropped = pyqtSignal(list)
-    PLACEHOLDER = "Przeciągnij i upuść pliki tutaj\n(obrazy lub wideo)"
+    PLACEHOLDER = "Przeciągnij i upuść pliki tutaj\n(obrazy, wideo lub foldery sekwencji)"
 
     def __init__(self):
         super().__init__()
@@ -58,7 +58,7 @@ class DropList(QListWidget):
 
     def dropEvent(self, event):
         paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
-        paths = [p for p in paths if p.is_file()]
+        paths = [p for p in paths if p.is_file() or p.is_dir()]
         if paths:
             self.filesDropped.emit(paths)
         event.acceptProposedAction()
