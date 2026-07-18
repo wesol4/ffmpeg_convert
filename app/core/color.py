@@ -11,30 +11,29 @@ from pathlib import Path
 from app.config import CONFIG
 from app.core import probe
 
-# Opcjonalny nadpisany LUT ACES (np. wyeksportowany z Nuke: ACES 2.0 sRGB Display).
-# Ustawiany przez CLI --aces-lut / GUI; pusty = wbudowany aces_ap0_to_srgb.cube.
-_user_lut: "Path | None" = None
 
-
-def set_aces_lut(path) -> None:
-    """Nadpisz LUT ACES (AP0 linear → sRGB display). None = wróć do wbudowanego."""
-    global _user_lut
-    _user_lut = Path(path) if path else None
-
-
-def lut_path() -> Path:
+def lut_path(user_lut: "Path | str | None" = None) -> Path:
+    """Ścieżka LUT-a 3D."""
     """Ścieżka LUT-a 3D: nadpisany (user) lub wbudowany app/luts/aces_ap0_to_srgb.cube."""
-    if _user_lut is not None:
-        return _user_lut
+    if user_lut is not None:
+        return Path(user_lut)
     return Path(__file__).resolve().parents[1] / "luts" / CONFIG.color.aces_lut
 
 
-def exr_color_vf(scale: "str | None", color: bool, seq_ext: str, target: str):
+def exr_color_vf(scale: "str | None", color: bool, seq_ext: str, target: str,
+                 *, colorspace: "str | None" = None,
+                 aces_lut: "Path | str | None" = None) -> "tuple[str | None, list, str]":
     """vf konwertujący EXR (scene-referred linear) → sRGB display dla danego wyjścia.
 
     target ∈ {"jpg", "png", "mp4"}. scale — wynik _scale_filter() lub None (doklejone
     PRZED konwersją koloru, by skalować w linear). Zwraca (vf, tags, label) lub
     (None, [], "") gdy bez konwersji (nie-EXR / color=False / brak zscale/LUT).
+
+    colorspace — której przestrzeni zakładamy dla EXR ("aces2065" lub "lin709");
+    None = wartość z CONFIG.color.exr_colorspace.
+
+    aces_lut — opcjonalny nadpisany LUT ACES (np. wyeksportowany z Nuke: ACES 2.0
+    sRGB Display); None = wbudowany aces_ap0_to_srgb.cube.
 
     ACES2065-1 (AP0, domyślnie): macierz AP0→709 przez LUT 3D (zscale nie zna primaries
     AP0) + sRGB OETF, bez filmicznego RRT — wartości >1 i <0 są clipowane. lin709:
@@ -44,12 +43,12 @@ def exr_color_vf(scale: "str | None", color: bool, seq_ext: str, target: str):
     """
     if not (color and CONFIG.color.exr_linear and seq_ext.lower() == "exr"):
         return None, [], ""
-    cs = CONFIG.color.exr_colorspace
+    cs = colorspace or CONFIG.color.exr_colorspace
     zscale_ok = probe.has_filter("zscale")
     tag = " (AP0→sRGB)" if cs == "aces2065" else " (linear→sRGB)"
 
     if cs == "aces2065":
-        lp = lut_path()
+        lp = lut_path(aces_lut)
         if not lp.is_file():
             from app.log import get_logger
             get_logger().warning(

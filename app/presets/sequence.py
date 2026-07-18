@@ -76,7 +76,9 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
                   proxy_start_frame: int = 1001,
                   size_mode: str = "crf",
                   crf: int = CONFIG.h264size.crf_default,
-                  target_mb: float = CONFIG.h264size.target_mb_default) -> Job:
+                  target_mb: float = CONFIG.h264size.target_mb_default,
+                  colorspace: "str | None" = None,
+                  aces_lut: "Path | str | None" = None) -> Job:
     """Złóż posortowane obrazy w wideo przez demuxer image2 (niezawodny FPS i
     pełna liczba klatek). Tworzy katalog tymczasowy z symlinkami seq_%05d.ext.
 
@@ -122,10 +124,13 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
 
     # Konwersja koloru EXR (linear) → display tylko dla formatów dystrybucyjnych.
     # prores/dnxhd to intermediaty montażowe — tam OETF byłby szkodliwy.
-    color_vf, color_tags, color_tag = None, [], ""
+    color_vf: "str | None" = None
+    color_tags: list = []
+    color_tag = ""
     if (color and CONFIG.color.exr_linear and seq_ext.lower() == "exr"
             and fmt in (SeqFormat.H264, SeqFormat.H265)):
-        color_vf, color_tags, color_tag = exr_color_vf(None, color, seq_ext, "mp4")
+        color_vf, color_tags, color_tag = exr_color_vf(
+            None, color, seq_ext, "mp4", colorspace=colorspace, aces_lut=aces_lut)
 
     # Katalog tymczasowy z ponumerowanymi symlinkami → image2 demuxer.
     tmp = Path(tempfile.mkdtemp(prefix="ffseq_"))
@@ -155,6 +160,7 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
             size_job = _h264_size_seq_job(
                 tmp_pattern, mp4_out, fps, len(paths), audio, color_vf, color_tags,
                 target_mb, out_dir, tmp,
+                colorspace=colorspace, aces_lut=aces_lut,
             )
             cmds.extend(size_job.cmds)
             label += f" → {mp4_out.name} (~{target_mb:g} MB, CPU 2-pass){color_tag}"
@@ -200,7 +206,8 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
     for v in variants:
         cmds.append(build_proxy_cmd(tmp_pattern, out_dir, name, v,
                                     fps=fps, start_frame=proxy_start_frame,
-                                    color=color, seq_ext=seq_ext))
+                                    color=color, seq_ext=seq_ext,
+                                    colorspace=colorspace, aces_lut=aces_lut))
         label += f" + proxy {v.subdir}/{name}.{proxy_start_frame}+.{v.ext}"
 
     return Job(label=label, cmds=cmds, mkdir=out_dir, cleanup=[tmp],
@@ -210,7 +217,9 @@ def build_seq_job(files: list, *, fps: int = 24, fmt: "SeqFormat | str" = "h264"
 def _h264_size_seq_job(tmp_pattern: str, mp4_out: Path, fps: int, frame_count: int,
                        audio: "Path | None", color_vf: "str | None",
                        color_tags: list, target_mb: float,
-                       out_dir: Path, tmp: Path) -> Job:
+                       out_dir: Path, tmp: Path,
+                       colorspace: "str | None" = None,
+                       aces_lut: "Path | str | None" = None) -> Job:
     """CPU 2-pass H.264 dla sekwencji klatek z docelowym rozmiarem w MB.
 
     Dla sekwencji nie znamy trwania z ffprobe, więc liczymy je z fps i liczby klatek.
@@ -232,8 +241,8 @@ def _h264_size_seq_job(tmp_pattern: str, mp4_out: Path, fps: int, frame_count: i
                    mkdir=out_dir, cleanup=cleanup)
 
     audio_k = CONFIG.audio.twopass_audio_k if audio else 0
-    total_k = (target_mb * 8192) / duration
-    video_k = max(50, int(total_k - audio_k))
+    total_k = (target_mb * 8192) / duration * (1 - CONFIG.h264size.overhead_pct)
+    video_k = max(50, min(int(total_k - audio_k), CONFIG.h264size.max_video_kbps))
 
     pass1 = [FFMPEG, "-y", "-framerate", str(fps), "-i", tmp_pattern]
     if color_vf:
@@ -280,20 +289,23 @@ def build_thumbnail_cmd(src: "Path | str", out_path: "Path | str",
             "-vf", f"scale={width}:-2,format=rgb24", str(out_path)]
 
 
-def _resolve_proxy_variant(v) -> ProxyVariant:
+def _resolve_proxy_variant(v: "ProxyVariant | str") -> ProxyVariant:
     """Str/ProxyVariant → ProxyVariant. Str = klucz szukany w CONFIG.seq.proxy_variants."""
     if isinstance(v, ProxyVariant):
         return v
     for pv in CONFIG.seq.proxy_variants:
         if pv.key == v:
-            return pv
+            result: ProxyVariant = pv
+            return result
     raise ValueError(f"Nieznany wariant proxy: {v!r}")
 
 
 def build_proxy_cmd(tmp_pattern: "Path | str", out_dir: "Path | str", stem: str,
                     variant: ProxyVariant, *, fps: int = 24,
                     start_frame: int = 1001, color: bool = True,
-                    seq_ext: str = "exr") -> list:
+                    seq_ext: str = "exr",
+                    colorspace: "str | None" = None,
+                    aces_lut: "Path | str | None" = None) -> list:
     """Komenda FFmpeg: sekwencja klatek → proxy (sekwencja obrazów numerowana od
     start_frame, standard VFX 1001). Czyta z tmp_pattern (image2 demuxer), zapisuje do
     out_dir/variant.subdir/stem.NNNN.ext. Podfolder jest tu zakładany (ffmpeg image2
@@ -314,7 +326,8 @@ def build_proxy_cmd(tmp_pattern: "Path | str", out_dir: "Path | str", stem: str,
     target = "png" if variant.ext == "png" else "jpg"
     # EXR (linear) → sRGB display przez exr_color_vf (ACES LUT lub zscale lin709);
     # None = nie-EXR / color=False / brak zscale/LUT → sam format (bez OETF).
-    cvf, tags, _label = exr_color_vf(scale, color, seq_ext, target)
+    cvf, tags, _label = exr_color_vf(
+        scale, color, seq_ext, target, colorspace=colorspace, aces_lut=aces_lut)
     if cvf is None:
         # PNG → rgb48le (16-bit, wartości zachowane). JPG → rgb24 i zostawiamy konwersję
         # RGB→YUV(+tag 601) enkoderowi mjpeg (konsystentne — patrz exr_vf_jpg).
@@ -341,7 +354,9 @@ def build_seq_jobs_from_folders(folders: list, *, fps: int = 24,
                                 proxy_start_frame: int = 1001,
                                 size_mode: str = "crf",
                                 crf: int = CONFIG.h264size.crf_default,
-                                target_mb: float = CONFIG.h264size.target_mb_default) -> list:
+                                target_mb: float = CONFIG.h264size.target_mb_default,
+                                colorspace: "str | None" = None,
+                                aces_lut: "Path | str | None" = None) -> list:
     """Batch: jeden Job na folder sekwencji (mp4 + miniaturka + proxy wg wyboru).
 
     mp4_in_seq — True = mp4 wewnątrz folderu sekwencji (jak build_seq_job);
@@ -378,6 +393,7 @@ def build_seq_jobs_from_folders(folders: list, *, fps: int = 24,
             thumb_width=thumb_width, thumb_ext=thumb_ext,
             proxy_variants=proxy_variants, proxy_start_frame=proxy_start_frame,
             size_mode=size_mode, crf=crf, target_mb=target_mb,
+            colorspace=colorspace, aces_lut=aces_lut,
         ))
     return jobs
 

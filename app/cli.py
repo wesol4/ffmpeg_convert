@@ -63,15 +63,15 @@ def cmd_image(a) -> int:
     quality = None if keep else int(a.quality)
     jobs = presets.build_image_jobs(files, quality=quality, keep=keep,
                                     newname=a.name, subdir=not a.beside,
-                                    scale_pct=a.scale, color=not a.no_color)
+                                    scale_pct=a.scale, color=not a.no_color,
+                                    colorspace=a.exr_colorspace,
+                                    aces_lut=a.aces_lut)
     return _run(jobs)
 
 
 def cmd_seq(a) -> int:
     # Katalogi jako argumenty → tryb batch: jeden mp4 na folder (+ opcjonalnie
     # miniaturka i proxy). Luźne pliki → dotychczasowy pojedynczy mp4 z sekwencji.
-    from app.core.color import set_aces_lut
-    set_aces_lut(a.aces_lut)  # nadpisz LUT ACES (np. wyeksportowany z Nuke); None=wbudowany
     dirs = [Path(f) for f in a.files if Path(f).is_dir()]
     loose = [f for f in a.files if not Path(f).is_dir()]
     # Miniaturka wymaga mp4 — gdy --no-mp4, ignorujemy --thumb z ostrzeżeniem.
@@ -87,7 +87,8 @@ def cmd_seq(a) -> int:
             thumb_width=thumb, make_mp4=not a.no_mp4,
             proxy_variants=(a.proxy or []), proxy_start_frame=a.proxy_start,
             size_mode=size_mode, crf=a.crf,
-            target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default))
+            target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default),
+            colorspace=a.exr_colorspace, aces_lut=a.aces_lut)
         return _run(jobs)
     files = _existing(loose)
     return _run([presets.build_seq_job(
@@ -95,7 +96,8 @@ def cmd_seq(a) -> int:
         make_mp4=not a.no_mp4, proxy_variants=(a.proxy or []),
         proxy_start_frame=a.proxy_start,
         size_mode=size_mode, crf=a.crf,
-        target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default))])
+        target_mb=(a.target_mb or presets.CONFIG.h264size.target_mb_default),
+        colorspace=a.exr_colorspace, aces_lut=a.aces_lut)])
 
 
 def cmd_split(a) -> int:
@@ -165,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="skaluj obrazy procentowo, np. 50 = połowa wymiarów (100 = bez zmian)")
     pi.add_argument("--no-color", action="store_true",
                     help="nie nakładaj OETF dla EXR (linear) — zostaw surowe wartości")
+    pi.add_argument("--exr-colorspace", default=None,
+                    choices=["aces2065", "lin709"],
+                    help="przestrzeń EXR: aces2065 (domyślnie) lub lin709")
+    pi.add_argument("--aces-lut", default=None,
+                    help="własny LUT ACES (.cube) zamiast wbudowanego")
     pi.add_argument("files", nargs="+")
     pi.set_defaults(func=cmd_image)
 
@@ -193,6 +200,9 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--proxy-start", type=int,
                     default=presets.CONFIG.seq.proxy_start_frame,
                     help="początkowy numer klatki proxy (standard VFX: 1001)")
+    ps.add_argument("--exr-colorspace", default=None,
+                    choices=["aces2065", "lin709"],
+                    help="przestrzeń EXR: aces2065 (domyślnie) lub lin709")
     ps.add_argument("--aces-lut", default=None,
                     help="własny LUT ACES (.cube) zamiast wbudowanego — np. wyeksportowany "
                          "z Nuke 'sRGB Display' (ACES 2.0); wejście AP0 linear -> sRGB display")

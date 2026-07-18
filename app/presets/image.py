@@ -35,7 +35,9 @@ def _scale_filter(scale_pct: Optional[float]) -> Optional[str]:
 
 def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = False,
                      newname: str = "", subdir: bool = True,
-                     scale_pct: Optional[float] = None, color: bool = True) -> list:
+                     scale_pct: Optional[float] = None, color: bool = True,
+                     colorspace: Optional[str] = None,
+                     aces_lut: "Path | str | None" = None) -> list:
     """Joby dla obrazów. quality=None lub keep=True → kopiuj oryginał.
 
     Kompresji do JPG poddajemy DOWOLNY obraz rastrowy (nie tylko PNG) — FFmpeg
@@ -69,8 +71,9 @@ def build_image_jobs(files: list, *, quality: Optional[int] = 2, keep: bool = Fa
             # EXR (linear) → sRGB display przez exr_color_vf (ACES LUT lub zscale lin709);
             # None = nie-EXR / color=False / brak zscale(LUT) → sam format=yuvj420p.
             from app.core.color import exr_color_vf
-            cvf, extra, color_tag = exr_color_vf(scale, color,
-                                                  path.suffix.lstrip("."), "jpg")
+            cvf, extra, color_tag = exr_color_vf(
+                scale, color, path.suffix.lstrip("."), "jpg",
+                colorspace=colorspace, aces_lut=aces_lut)
             if cvf is None:
                 vf = "format=yuvj420p" if not scale else f"{scale},format=yuvj420p"
                 extra, color_tag = [], ""

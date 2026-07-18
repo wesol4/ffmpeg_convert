@@ -48,6 +48,10 @@ class H264SizeConfig:
     crf_min: int = 18
     crf_max: int = 32
     target_mb_default: int = 25
+    # Docelowy rozmiar: rezerwujemy % na kontener + audio-metadata, by plik wynikowy
+    # nie przekraczał target_mb; cap chroni przed absurdalnym bitrate na krótkich klipach.
+    overhead_pct: float = 0.05
+    max_video_kbps: int = 25000
 
 
 @dataclass(frozen=True)
@@ -77,8 +81,8 @@ class ProxyVariant:
     label: str
     ext: str
     subdir: str
-    scale_pct: int = 100
-    quality: "int | None" = 2
+    scale_pct: int = field(default=100)
+    quality: "int | None" = field(default=2)
 
 
 @dataclass(frozen=True)

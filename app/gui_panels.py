@@ -156,8 +156,24 @@ class SeqPanel(QWidget):
             chk = QCheckBox(v.label)
             play.addWidget(chk)
             self.proxy_chks[v.key] = chk
-        # Opcjonalny własny LUT ACES (np. wyeksportowany z Nuke: ACES 2.0 sRGB Display).
+        # Wybór przestrzeni EXR + opcjonalny własny LUT ACES.
         # Pusty = wbudowany aces_ap0_to_srgb.cube. Wejście AP0 linear → sRGB display.
+        cs_box = QGroupBox("Colorspace EXR")
+        cs_lay = QVBoxLayout(cs_box)
+        self.exr_cs_group = QButtonGroup(self)
+        rb_aces = QRadioButton("ACES2065-1 (AP0 → sRGB)")
+        rb_lin = QRadioButton("linear BT.709")
+        rb_aces.setChecked(True)
+        rb_aces.setProperty("value", "aces2065")
+        rb_lin.setProperty("value", "lin709")
+        self.exr_cs_group.addButton(rb_aces, 1)
+        self.exr_cs_group.addButton(rb_lin, 2)
+        cs_lay.addWidget(rb_aces)
+        cs_lay.addWidget(rb_lin)
+        # checkedId() zwraca 1/2; mapujemy na stringi w build_jobs.
+        self.exr_cs_map = {1: "aces2065", 2: "lin709"}
+        layout.addWidget(cs_box)
+
         lut_row = QHBoxLayout()
         lut_row.addWidget(QLabel("LUT ACES:"))
         self.lut_edit = QLineEdit()
@@ -216,8 +232,6 @@ class SeqPanel(QWidget):
         self.folders = list(folders)
 
     def build_jobs(self):
-        # Własny LUT ACES (opcjonalnie) — ustaw przed budową jobów; None = wbudowany.
-        presets.set_aces_lut(self.lut_edit.text().strip() or None)
         make_mp4 = self.mp4_chk.isChecked()
         thumb_width = (self.thumb_width.value() if make_mp4 and self.thumb_chk.isChecked()
                        else None)
@@ -237,6 +251,8 @@ class SeqPanel(QWidget):
             size_mode=size_mode,
             crf=self.crf_slider.value(),
             target_mb=self.target_mb.value(),
+            colorspace=self.exr_cs_map.get(self.exr_cs_group.checkedId(), "aces2065"),
+            aces_lut=self.lut_edit.text().strip() or None,
         )
 
 
@@ -322,6 +338,22 @@ class ImagePanel(QWidget):
         self.rb_keep.toggled.connect(self._toggle_scale)
         self._toggle_scale()
 
+        # Colorspace EXR — tylko dla obrazów liniowych (EXR).
+        cs_box = QGroupBox("Colorspace EXR")
+        cs_lay = QVBoxLayout(cs_box)
+        self.exr_cs_group = QButtonGroup(self)
+        rb_aces = QRadioButton("ACES2065-1 (AP0 → sRGB)")
+        rb_lin = QRadioButton("linear BT.709")
+        rb_aces.setChecked(True)
+        rb_aces.setProperty("value", "aces2065")
+        rb_lin.setProperty("value", "lin709")
+        self.exr_cs_group.addButton(rb_aces, 1)
+        self.exr_cs_group.addButton(rb_lin, 2)
+        cs_lay.addWidget(rb_aces)
+        cs_lay.addWidget(rb_lin)
+        self.exr_cs_map = {1: "aces2065", 2: "lin709"}
+        layout.addWidget(cs_box)
+
         layout.addStretch()
 
     def set_files(self, files):
@@ -394,6 +426,7 @@ class ImagePanel(QWidget):
             self.files, quality=self._quality(), keep=keep,
             newname=self.name_edit.text().strip(), subdir=self.rb_subdir.isChecked(),
             scale_pct=self._scale_pct(),
+            colorspace=self.exr_cs_map.get(self.exr_cs_group.checkedId(), "aces2065"),
         )
 
 

@@ -169,8 +169,9 @@ def _h264_size_job(src: Path, base: str, batch: bool,
 
     has_audio = probe.probe_has_audio(src)
     audio_k = CONFIG.audio.twopass_audio_k if has_audio else 0
-    total_k = (target_mb * 8192) / dur  # MB → kbit/s całości
-    video_k = max(50, int(total_k - audio_k))
+    # total = target - overhead; video = total - audio; cap na max_video_kbps.
+    total_k = (target_mb * 8192) / dur * (1 - CONFIG.h264size.overhead_pct)
+    video_k = max(50, min(int(total_k - audio_k), CONFIG.h264size.max_video_kbps))
     passlog = str(out_dir / f"{base}_ffmpeg2pass")
     pass1 = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
              "-preset", "slow", "-pix_fmt", "yuv420p", "-pass", "1",

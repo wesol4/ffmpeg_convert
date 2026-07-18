@@ -249,8 +249,8 @@ class TestH264Size(unittest.TestCase):
         self.assertEqual(job.cmds[1][job.cmds[1].index("-pass") + 1], "2")
         self.assertIn("-an", job.cmds[0])  # pass1 bez audio
         self.assertIn(os.devnull, job.cmds[0])  # wyjście pass1 → null
-        # bitrate wideo = max(50, 25*8192/10 - 128) = 20352
-        self.assertIn("20352k", job.cmds[0])
+        # bitrate wideo = max(50, 25*8192/10*0.95 - 128) = 19328
+        self.assertIn("19328k", job.cmds[0])
         # pass2 koduje audio (128k)
         self.assertIn("-c:a", job.cmds[1])
         self.assertIn("128k", job.cmds[1])
@@ -265,8 +265,8 @@ class TestH264Size(unittest.TestCase):
             jobs = presets.build_video_jobs("h264size", [src],
                                             size_mode="size", target_mb=25)
         job = jobs[0]
-        # bez audio: całe 25*8192/10 = 20480 na wideo, pass2 bez -c:a
-        self.assertIn("20480k", job.cmds[0])
+        # bez audio: 25*8192/10*0.95 = 19456 na wideo, pass2 bez -c:a
+        self.assertIn("19456k", job.cmds[0])
         self.assertNotIn("-c:a", job.cmds[1])
 
     def test_size_mode_falls_back_when_no_duration(self):
@@ -413,7 +413,7 @@ class TestSeq(unittest.TestCase):
             self.assertEqual(Path(job.cmds[0][-1]), d / "custom.mp4")
 
 
-import dataclasses
+import dataclasses  # noqa: E402
 
 
 def _cfg_with(cs: str):
@@ -846,23 +846,18 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_proxy_custom_lut_override(self):
         # --aces-lut / picker: własny .cube nadpisuje wbudowany LUT ACES.
-        from app.core.color import set_aces_lut
         with tempfile.TemporaryDirectory() as root:
             lut = Path(root) / "my_aces.cube"
             lut.write_text("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
                            "0 0 1\n1 0 1\n0 1 1\n1 1 1\n")
             a = self._make_folder(Path(root), "shot", ext="exr")
-            set_aces_lut(str(lut))
-            try:
-                with mock.patch("app.core.probe.has_filter", return_value=True):
-                    jobs = presets.build_seq_jobs_from_folders(
-                        [a], fmt="h264", proxy_variants=["jpg"])
-                cmd = self._proxy_cmd(jobs[0], "proxy_jpg")
-                vf = cmd[cmd.index("-vf") + 1]
-                self.assertIn("my_aces.cube", vf)            # nadpisany LUT w vf
-                self.assertNotIn("aces_ap0_to_srgb", vf)    # nie wbudowany
-            finally:
-                set_aces_lut(None)
+            with mock.patch("app.core.probe.has_filter", return_value=True):
+                jobs = presets.build_seq_jobs_from_folders(
+                    [a], fmt="h264", proxy_variants=["jpg"], aces_lut=str(lut))
+            cmd = self._proxy_cmd(jobs[0], "proxy_jpg")
+            vf = cmd[cmd.index("-vf") + 1]
+            self.assertIn("my_aces.cube", vf)            # nadpisany LUT w vf
+            self.assertNotIn("aces_ap0_to_srgb", vf)    # nie wbudowany
 
 
 class TestSeqStem(unittest.TestCase):
