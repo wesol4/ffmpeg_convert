@@ -118,7 +118,7 @@ class TestEncoder(unittest.TestCase):
 class TestSeqEncoder(unittest.TestCase):
     def test_seq_h264_nvenc(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             (d / "f_1.png").touch()
             (d / "f_2.png").touch()
             job = presets.build_seq_job([str(d / "f_1.png"), str(d / "f_2.png")],
@@ -130,7 +130,7 @@ class TestSeqEncoder(unittest.TestCase):
 
     def test_seq_prores_ignores_encoder(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             (d / "f_1.png").touch()
             job = presets.build_seq_job([str(d / "f_1.png")], fps=30, fmt="prores", encoder="nvenc")
             self.assertNotIn("nvenc", [c.lower() for c in job.cmds[0]])
@@ -374,7 +374,7 @@ class TestSeq(unittest.TestCase):
 
     def test_build_seq_job_cmd_and_audio(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             # puste pliki wystarczą (symlinki nie wymagają istnienia źródła)
             for n in ("frame_2.png", "frame_10.png", "frame_1.png"):
                 (d / n).touch()
@@ -395,7 +395,7 @@ class TestSeq(unittest.TestCase):
 
     def test_build_seq_job_no_audio(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             (d / "f_1.png").touch()
             job = presets.build_seq_job([str(d / "f_1.png")], fps=30, fmt="prores")
             self.assertNotIn("-shortest", job.cmds[0])
@@ -407,7 +407,7 @@ class TestSeq(unittest.TestCase):
 
     def test_out_path_override(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             (d / "seq").mkdir()
             (d / "seq" / "f_1.png").touch()
             job = presets.build_seq_job([str(d / "seq" / "f_1.png")], fmt="h264",
@@ -434,7 +434,7 @@ class TestSeqEXRColor(unittest.TestCase):
 
     def _exr_job(self, fmt="h264", color=True, has_zscale=True, encoder="cpu", cs=None):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             for n in ("f_1.exr", "f_2.exr"):
                 (d / n).touch()
             patches = [mock.patch("app.core.probe.has_filter", return_value=has_zscale)]
@@ -477,7 +477,7 @@ class TestSeqEXRColor(unittest.TestCase):
 
     def test_png_seq_unchanged(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             (d / "f_1.png").touch()
             with mock.patch("app.core.probe.has_filter", return_value=True):
                 job = presets.build_seq_job([str(d / "f_1.png")], fmt="h264")
@@ -587,7 +587,7 @@ def _make_png(path: Path, size: str = "8x8", color: str = "red"):
 class TestSplit(unittest.TestCase):
     def test_grid_2x2_crops_and_naming(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             src = d / "img.png"
             _make_png(src, "8x8")
             jobs = presets.build_split_jobs([src], cols=2, rows=2, subdir=True)
@@ -614,7 +614,7 @@ class TestSplit(unittest.TestCase):
 class TestFlipbook(unittest.TestCase):
     def test_cmd_and_real_output(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             for n in ("frame_1.png", "frame_2.png"):
                 _make_png(d / n, "8x8")
             files = [str(d / "frame_1.png"), str(d / "frame_2.png")]
@@ -631,7 +631,7 @@ class TestFlipbook(unittest.TestCase):
 
     def test_tile_scaling(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
+            d = Path(d).resolve()
             _make_png(d / "f_1.png", "8x8")
             _make_png(d / "f_2.png", "8x8")
             job = presets.build_flipbook_job(
@@ -657,7 +657,7 @@ class TestSeqBatch(unittest.TestCase):
 
     def test_one_job_per_folder(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             a = self._make_folder(root, "seqA")
             b = self._make_folder(root, "seqB")
             jobs = presets.build_seq_jobs_from_folders([a, b], fps=24, fmt="h264")
@@ -669,7 +669,7 @@ class TestSeqBatch(unittest.TestCase):
 
     def test_mp4_in_parent(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             a = self._make_folder(root, "seqA")
             jobs = presets.build_seq_jobs_from_folders([a], mp4_in_seq=False, fmt="h264")
             self.assertEqual(len(jobs), 1)
@@ -678,7 +678,7 @@ class TestSeqBatch(unittest.TestCase):
 
     def test_thumbnail_appended(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             a = self._make_folder(root, "seqA", frames=2)
             with mock.patch("app.core.probe.probe_duration", return_value=10.0):
                 jobs = presets.build_seq_jobs_from_folders(
@@ -697,14 +697,14 @@ class TestSeqBatch(unittest.TestCase):
 
     def test_no_thumb_when_none(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             a = self._make_folder(root, "seqA")
             jobs = presets.build_seq_jobs_from_folders([a], thumb_width=None)
             self.assertEqual(len(jobs[0].cmds), 1)
 
     def test_skips_empty_folder(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             empty = self._make_folder(root, "empty", frames=0)
             full = self._make_folder(root, "full", frames=2)
             jobs = presets.build_seq_jobs_from_folders([empty, full])
@@ -743,13 +743,13 @@ class TestSeqProxy(unittest.TestCase):
 
     def _proxy_cmd(self, job, subdir):
         """Zwraca komendę proxy wg nazwy podfolderu w ostatnim argumencie."""
-        cmds = [c for c in job.cmds if f"/{subdir}/" in c[-1]]
+        cmds = [c for c in job.cmds if Path(c[-1]).parent.name == subdir]
         self.assertEqual(len(cmds), 1, f"oczekiwano 1 komendy proxy {subdir}, jest {len(cmds)}")
         return cmds[0]
 
     def test_proxy_jpg_appended(self):
         with tempfile.TemporaryDirectory() as root:
-            root = Path(root)
+            root = Path(root).resolve()
             a = self._make_folder(root, "shot", frames=3)
             jobs = presets.build_seq_jobs_from_folders([a], fmt="h264",
                                                        proxy_variants=["jpg"])

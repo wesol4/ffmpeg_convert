@@ -183,7 +183,12 @@ class TestLogFile(unittest.TestCase):
             log.info("test-marker-123")
             for h in log.handlers:
                 h.flush()
-            content = logfile.read_text(encoding="utf-8")
+            try:
+                content = logfile.read_text(encoding="utf-8")
+            finally:
+                for handler in list(log.handlers):
+                    log.removeHandler(handler)
+                    handler.close()
         self.assertIn("test-marker-123", content)
         self.assertTrue(logfile.name.endswith(".log"))
 

@@ -23,7 +23,7 @@ class GuiSequenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.frames = [self.root / f"render.{n:04d}.png" for n in range(1001, 1005)]
         for frame in self.frames:
             frame.touch()
