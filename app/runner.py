@@ -13,6 +13,7 @@ i dużych plikach).
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 from app.core.jobs import Job
+from app.core.process import subprocess_options
 from app.log import get_logger
 
 _LOG = get_logger()
@@ -59,7 +61,9 @@ def _run_cmd(cmd: list, on_percent: Callable[[float], None] | None = None,
         return
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            text=True, bufsize=1)
+                            text=True, encoding="utf-8", errors="replace", bufsize=1,
+                            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                            **subprocess_options())
     last: deque[str] = deque(maxlen=5)
     stream = proc.stderr
     try:
@@ -68,6 +72,11 @@ def _run_cmd(cmd: list, on_percent: Callable[[float], None] | None = None,
                 line = line.rstrip()
                 if line:
                     last.append(line)
+                if line.startswith("progress_fraction=") and on_percent:
+                    try:
+                        on_percent(max(0.0, min(1.0, float(line.split("=", 1)[1]))))
+                    except ValueError:
+                        pass
                 us = _out_time_us(line)
                 if us is not None and duration and duration > 0 and on_percent:
                     on_percent(min(1.0, us / (duration * 1_000_000)))
@@ -78,7 +87,7 @@ def _run_cmd(cmd: list, on_percent: Callable[[float], None] | None = None,
     if on_percent:
         on_percent(1.0)  # ta komenda ukończona (nawet bez linii postępu)
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg zwrócił kod {proc.returncode}:\n" + "\n".join(last))
+        raise RuntimeError(f"{Path(cmd[0]).name} zwrócił kod {proc.returncode}:\n" + "\n".join(last))
 
 
 def run_job(job: Job, on_percent: Callable[[float], None] | None = None) -> None:

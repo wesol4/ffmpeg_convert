@@ -43,7 +43,7 @@ def main(files=None) -> int:
         log.error("niezgodny rdzeń app/ — brak presets.VideoPreset (stary presets.py?)")
         print("BŁĄD: niezgodna wersja rdzenia app/ — brak presets.VideoPreset.\n"
               "Przekopiuj cały folder app/ na nowo (stary presets.py przykrywa "
-              "pakiet presets/). Uruchom win\\setup.bat i wybierz 3 (Skopiuj app\\).",
+              "pakiet presets/). Uruchom win\\setup.bat i wybierz 1 (Zainstaluj / aktualizuj).",
               file=sys.stderr)
         return 1
     log.info("GUI start, files=%d", len(files or []))

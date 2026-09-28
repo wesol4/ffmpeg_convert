@@ -6,12 +6,13 @@ from __future__ import annotations
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
+    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QPushButton, QRadioButton, QSlider,
     QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app import presets
+from app.core.sequences import detect_sequence, matching_audio
 
 
 class SeqPanel(QWidget):
@@ -27,14 +28,16 @@ class SeqPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.folders = []
+        self.frames = []
         layout = QVBoxLayout(self)
 
         fmt_box = QGroupBox("Format wyjściowy")
         flay = QVBoxLayout(fmt_box)
         row = QHBoxLayout()
         row.addWidget(QLabel("FPS:"))
-        self.fps = QSpinBox()
-        self.fps.setRange(1, 120)
+        self.fps = QDoubleSpinBox()
+        self.fps.setDecimals(3)
+        self.fps.setRange(0.001, 240)
         self.fps.setValue(presets.CONFIG.seq.default_fps)
         row.addWidget(self.fps)
         row.addSpacing(12)
@@ -46,6 +49,44 @@ class SeqPanel(QWidget):
         row.addStretch()
         flay.addLayout(row)
         layout.addWidget(fmt_box)
+        self.sequence_summary = QLabel()
+        self.sequence_summary.setWordWrap(True)
+        self.sequence_summary.setTextFormat(Qt.PlainText)
+        layout.addWidget(self.sequence_summary)
+        self.output_box = QWidget()
+        output_layout = QHBoxLayout(self.output_box)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.addWidget(QLabel("Nazwa filmu:"))
+        self.output_name = QLineEdit()
+        self.output_name.setPlaceholderText("Nazwa bez rozszerzenia")
+        output_layout.addWidget(self.output_name)
+        layout.addWidget(self.output_box)
+        self.output_box.hide()
+
+        audio_box = QGroupBox("Dźwięk do filmu")
+        audio_layout = QVBoxLayout(audio_box)
+        self.audio_mode = QComboBox()
+        self.audio_mode.addItem("Dopasuj po nazwie sekwencji lub folderu", "auto")
+        self.audio_mode.addItem("Bez dźwięku", "none")
+        self.audio_mode.addItem("Wybierz plik…", "file")
+        audio_layout.addWidget(self.audio_mode)
+        audio_row = QHBoxLayout()
+        self.audio_file = QLineEdit()
+        self.audio_file.setPlaceholderText("WAV, MP3, FLAC lub film ze ścieżką audio")
+        self.audio_browse = QPushButton("Przeglądaj…")
+        self.audio_browse.clicked.connect(self._choose_audio)
+        audio_row.addWidget(self.audio_file, 1)
+        audio_row.addWidget(self.audio_browse)
+        audio_layout.addLayout(audio_row)
+        self.audio_hint = QLabel()
+        self.audio_hint.setWordWrap(True)
+        self.audio_hint.setTextFormat(Qt.PlainText)
+        audio_layout.addWidget(self.audio_hint)
+        layout.addWidget(audio_box)
+        self.audio_mode.currentIndexChanged.connect(self._audio_changed)
+        self.fps.valueChanged.connect(self._update_sequence_summary)
+        self._audio_changed()
+
 
         self.enc_box = QGroupBox("Enkoder wideo")
         elay = QHBoxLayout(self.enc_box)
@@ -110,9 +151,9 @@ class SeqPanel(QWidget):
         self.format.currentIndexChanged.connect(self._seq_toggle_size_box)
 
         # MP4 (z klatek) — przełącznik; miniaturka i lokalizacja mp4 od niego zależą.
-        out_box = QGroupBox("MP4 (z klatek)")
+        out_box = QGroupBox("Wideo z klatek")
         olay = QVBoxLayout(out_box)
-        self.mp4_chk = QCheckBox("Generuj MP4 z klatek")
+        self.mp4_chk = QCheckBox("Utwórz film z klatek")
         self.mp4_chk.setChecked(True)
         olay.addWidget(self.mp4_chk)
         self.out_group = QButtonGroup(self)
@@ -135,7 +176,7 @@ class SeqPanel(QWidget):
         self.thumb_chk.toggled.connect(self.thumb_width.setEnabled)
         tlay.addWidget(self.thumb_chk)
         tlay.addWidget(self.thumb_width)
-        tlay.addWidget(QLabel("(zapis w folderze nadrzędnym; wymaga MP4)"))
+        tlay.addWidget(QLabel("(zapis w folderze nadrzędnym; wymaga filmu)"))
         tlay.addStretch()
         layout.addWidget(thumb_box)
 
@@ -228,8 +269,46 @@ class SeqPanel(QWidget):
         if path:
             self.lut_edit.setText(path)
 
+    def _choose_audio(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Wybierz dźwięk",
+            filter="Audio i wideo (*.wav *.flac *.mp3 *.m4a *.aac *.ogg *.aif *.aiff *.mp4 *.mov *.mkv);;Wszystkie (*)")
+        if path:
+            self.audio_file.setText(path)
+            self.audio_mode.setCurrentIndex(2)
+
+    def _audio_changed(self):
+        custom = self.audio_mode.currentData() == "file"
+        self.audio_file.setVisible(custom)
+        self.audio_browse.setVisible(custom)
+        self.audio_hint.setText(
+            "Krótsze audio uzupełnimy ciszą, dłuższe przytniemy do filmu."
+            if self.audio_mode.currentData() != "none" else "Film zostanie utworzony bez ścieżki audio.")
+
+    def _update_sequence_summary(self):
+        if self.frames:
+            self.sequence_summary.setText(
+                f"{len(self.frames)} klatek · {len(self.frames) / self.fps.value():.2f} s · "
+                f"{self.frames[0].name} … {self.frames[-1].name}")
+
+    def set_frames(self, frames):
+        self.frames = list(frames)
+        self.folders = []
+        sequence = detect_sequence(self.frames[0])
+        self.output_name.setText(sequence.name if sequence else self.frames[0].parent.name)
+        self.output_box.show()
+        self._update_sequence_summary()
+        candidates = matching_audio(self.frames)
+        if self.audio_mode.currentData() == "auto":
+            self.audio_hint.setText(
+                "Znaleziono: " + ", ".join(p.name for p in candidates)
+                if candidates else "Brak dopasowanego audio. Wskaż plik lub utwórz film bez dźwięku.")
+
     def set_folders(self, folders):
         self.folders = list(folders)
+        self.frames = []
+        self.output_box.hide()
+        self.sequence_summary.setText(f"Foldery sekwencji: {len(self.folders)}")
+        self._audio_changed()
 
     def build_jobs(self):
         make_mp4 = self.mp4_chk.isChecked()
@@ -238,8 +317,10 @@ class SeqPanel(QWidget):
         proxy_keys = [k for k, chk in self.proxy_chks.items() if chk.isChecked()]
         is_h264 = self.format.currentData() == presets.SeqFormat.H264.value
         size_mode = "size" if (is_h264 and self.rb_target.isChecked()) else "crf"
-        return presets.build_seq_jobs_from_folders(
-            self.folders,
+        audio_path = self.audio_file.text().strip() if self.audio_mode.currentData() == "file" else None
+        if make_mp4 and self.audio_mode.currentData() == "file" and not audio_path:
+            raise ValueError("Wskaż plik audio lub wybierz tryb bez dźwięku.")
+        options = dict(
             fps=self.fps.value(),
             fmt=self.format.currentData(),
             encoder=self.encoder_combo.currentData() or "cpu",
@@ -253,7 +334,22 @@ class SeqPanel(QWidget):
             target_mb=self.target_mb.value(),
             colorspace=self.exr_cs_map.get(self.exr_cs_group.checkedId(), "aces2065"),
             aces_lut=self.lut_edit.text().strip() or None,
+            audio_path=audio_path, auto_audio=self.audio_mode.currentData() == "auto",
         )
+        if self.frames:
+            sequence = detect_sequence(self.frames[0])
+            if sequence is None or tuple(self.frames) != sequence.frames:
+                raise ValueError("Sekwencja zmieniła się na dysku. Dodaj klatkę ponownie.")
+            sequence.require_complete()
+            name = self.output_name.text().strip()
+            if not name or name in (".", "..") or any(c in name for c in '/\\\n\r'):
+                raise ValueError("Podaj samą nazwę filmu, bez ścieżki.")
+            folder = self.frames[0].parent
+            if not options.pop("mp4_in_seq"):
+                folder = folder.parent
+            output = folder / f"{name}.{presets.SEQ_FORMATS[self.format.currentData()]['ext']}"
+            return [presets.build_seq_job(self.frames, out_path=output, **options)]
+        return presets.build_seq_jobs_from_folders(self.folders, **options)
 
 
 class ImagePanel(QWidget):
@@ -527,6 +623,16 @@ class VideoPanel(QWidget):
         self.rb_crf.toggled.connect(self._toggle_encoder_enabled)
         self.rb_target.toggled.connect(self._toggle_encoder_enabled)
 
+        self.audio_info = QLabel(
+            "Zapis obok filmu w folderze *_AUDIO: głos, muzyka, efekty, tło bez głosu "
+            "oraz film bez lektora (MKV). Kolejne uruchomienia tworzą nowe foldery.\n"
+            "Działa lokalnie na CPU, bez kredytów. Przy pierwszym użyciu pobiera biblioteki "
+            "i model (kilka GB wolnego miejsca; może potrwać kilka minut). "
+            "Przetwarzana jest pierwsza ścieżka audio."
+        )
+        self.audio_info.setWordWrap(True)
+        layout.addWidget(self.audio_info)
+
         # Ustaw widoczność boxów dla domyślnie zaznaczonego presetu (h264):
         # bez tego encoder_box byłby ukryty na starcie, bo sygnał toggled nie
         # emituje się dla radio, które jest już zaznaczone.
@@ -547,6 +653,7 @@ class VideoPanel(QWidget):
         is_h264 = self.preset_buttons[presets.VideoPreset.H264].isChecked()
         is_h265 = self.preset_buttons[presets.VideoPreset.H265].isChecked()
         is_size = self.preset_buttons[presets.VideoPreset.H264SIZE].isChecked()
+        self.audio_info.setVisible(self.preset_buttons[presets.VideoPreset.AUDIO_SEPARATE].isChecked())
         self.frames_box.setVisible(self.preset_buttons[presets.VideoPreset.FRAMES].isChecked())
         self.size_box.setVisible(is_size)
         self.encoder_box.setVisible(is_h264 or is_h265 or is_size)

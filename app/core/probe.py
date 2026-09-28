@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.ffmpeg import FFMPEG, FFPROBE, Encoder
+from app.core.process import subprocess_options
 
 
 def probe_duration(src: Path) -> Optional[float]:
@@ -15,7 +16,7 @@ def probe_duration(src: Path) -> Optional[float]:
         out = subprocess.run(
             [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(src)],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", **subprocess_options(),
         )
         return float(out.stdout.strip())
     except Exception:
@@ -29,7 +30,7 @@ def probe_size(src: Path) -> Optional[tuple]:
             [FFPROBE, "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
              str(src)],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", **subprocess_options(),
         )
         w, h = out.stdout.strip().split("x")
         return int(w), int(h)
@@ -44,7 +45,7 @@ def probe_has_audio(src: Path) -> bool:
             [FFPROBE, "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0",
              str(src)],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", **subprocess_options(),
         )
         return bool(out.stdout.strip())
     except Exception:
@@ -61,7 +62,8 @@ def available_filters() -> frozenset:
     """
     try:
         out = subprocess.run([FFMPEG, "-hide_banner", "-filters"],
-                             capture_output=True, text=True, check=False)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             check=False, **subprocess_options())
     except Exception:
         return frozenset()
     names = set()
@@ -90,7 +92,8 @@ def probe_encoders() -> set:
     avail = {Encoder.CPU}
     try:
         out = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
-                             capture_output=True, text=True, check=False)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             check=False, **subprocess_options())
         text = out.stdout
         for enc in Encoder:
             if enc == Encoder.CPU:

@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app import presets
+from app.core.sequences import detect_sequence
 from app.gui_panels import ImagePanel, SeqPanel, VideoPanel
 from app.gui_style import ICON
 from app.gui_widgets import DropList
@@ -100,6 +101,18 @@ class MainWindow(QWidget):
         btn_row.addStretch()
         content_layout.addLayout(btn_row)
 
+        self.sequence_notice = QLabel()
+        self.sequence_notice.setWordWrap(True)
+        self.sequence_notice.setTextFormat(Qt.PlainText)
+        self.sequence_notice.hide()
+        self.sequence_btn = QPushButton("Utwórz wideo z całej sekwencji")
+        self.sequence_btn.setObjectName("Secondary")
+        self.sequence_btn.setCheckable(True)
+        self.sequence_btn.toggled.connect(self._sequence_mode_changed)
+        self.sequence_btn.hide()
+        content_layout.addWidget(self.sequence_notice)
+        content_layout.addWidget(self.sequence_btn)
+
         self.stack = QStackedWidget()
         self.empty_page = QLabel("Dodaj pliki, aby zobaczyć opcje konwersji.")
         self.empty_page.setObjectName("Subtitle")
@@ -159,16 +172,31 @@ class MainWindow(QWidget):
                 self.add_files(paths)
 
     def clear_files(self):
+        if self.worker is not None and self.worker.isRunning():
+            return
+        self.sequence_btn.setChecked(False)
+        self.sequence_btn.hide()
+        self.sequence_notice.hide()
         self.files = []
         self.kind = None
         self.drop_list.clear()
+        self.drop_list.setFixedHeight(150)
         self.log.clear()
         self.stack.setCurrentWidget(self.empty_page)
         self.convert_btn.setEnabled(False)
 
     def add_files(self, paths):
+        if self.worker is not None and self.worker.isRunning():
+            self.log.appendPlainText("Poczekaj na zakończenie bieżącej konwersji.")
+            return
+        self.sequence_btn.setChecked(False)
+        self.sequence_btn.hide()
+        self.sequence_notice.hide()
         for p in paths:
-            p = Path(p)
+            p = Path(p).absolute()
+            if not p.exists():
+                self.log.appendPlainText(f"Pomijam (niedostępny): {p.name}")
+                continue
             # Folder = tryb sekwencji (jeden mp4 na folder); plik → wg rozszerzenia.
             k = "seq" if p.is_dir() else presets.kind_of(p)
             if k == "other":
@@ -188,9 +216,11 @@ class MainWindow(QWidget):
         if not self.files:
             return
 
+        self.drop_list.setFixedHeight(min(180, max(64, len(self.files) * 30)))
         if self.kind == "image":
             self.image_panel.set_files(self.files)
             self.stack.setCurrentWidget(self.image_panel)
+            self._detect_selected_sequence()
         elif self.kind == "video":
             self.video_panel.set_files(self.files)
             self.stack.setCurrentWidget(self.video_panel)
@@ -199,6 +229,42 @@ class MainWindow(QWidget):
             self.stack.setCurrentWidget(self.seq_panel)
 
         self.convert_btn.setEnabled(True)
+
+    def _detect_selected_sequence(self):
+        try:
+            sequence = detect_sequence(self.files[0])
+            if sequence is None or not set(self.files).issubset(sequence.frames):
+                return
+            suffix = " Brakuje klatek: " + ", ".join(sequence.missing[:8]) if sequence.missing else ""
+            self.sequence_notice.setText(
+                f"Wykryto sekwencję: {sequence.name}, {len(sequence.frames)} klatek "
+                f"({sequence.first}–{sequence.last})." + suffix)
+            self.sequence_notice.show()
+            self.sequence_btn.setEnabled(not sequence.missing)
+            self.sequence_btn.show()
+        except (OSError, ValueError) as exc:
+            self.sequence_notice.setText(str(exc))
+            self.sequence_notice.show()
+
+    def _sequence_mode_changed(self, checked):
+        if checked:
+            try:
+                sequence = detect_sequence(self.files[0])
+                if sequence is None:
+                    raise ValueError("Sekwencja nie jest już dostępna. Dodaj klatkę ponownie.")
+                sequence.require_complete()
+                self.seq_panel.set_frames(sequence.frames)
+            except (OSError, ValueError) as exc:
+                self.log.appendPlainText(str(exc))
+                self.sequence_btn.setChecked(False)
+                return
+            self.stack.setCurrentWidget(self.seq_panel)
+            self.sequence_btn.setText("Wróć do konwersji wybranych obrazów")
+            self.convert_btn.setText("Utwórz wideo")
+        else:
+            self.stack.setCurrentWidget(self.image_panel)
+            self.sequence_btn.setText("Utwórz wideo z całej sekwencji")
+            self.convert_btn.setText("Konwertuj")
 
     def start_conversion(self):
         self.log.clear()
@@ -226,7 +292,7 @@ class MainWindow(QWidget):
                 self.convert_btn.setEnabled(False)
                 return
 
-        panel = (self.seq_panel if self.kind == "seq"
+        panel = (self.seq_panel if self.kind == "seq" or self.sequence_btn.isChecked()
                  else self.image_panel if self.kind == "image"
                  else self.video_panel)
         try:
@@ -240,6 +306,8 @@ class MainWindow(QWidget):
             return
 
         self.convert_btn.setEnabled(False)
+        self.sequence_btn.setEnabled(False)
+        self.stack.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setMaximum(100)
         self.progress.setValue(0)
@@ -250,12 +318,26 @@ class MainWindow(QWidget):
         self.worker.done.connect(self._on_done)
         self.worker.start()
 
-    def _on_done(self):
+    def _on_done(self, ok, total):
+        self.stack.setEnabled(True)
+        self.sequence_btn.setEnabled(True)
         self.convert_btn.setEnabled(True)
         self.progress.setValue(100)
-        self.log.appendPlainText("=== Gotowe ===")
+        self.log.appendPlainText(f"=== Ukończono poprawnie: {ok}/{total} ===")
+
+    def closeEvent(self, event):
+        if self.worker is not None and self.worker.isRunning():
+            self.log.appendPlainText("Konwersja trwa. Zamknij okno po jej zakończeniu.")
+            event.ignore()
+            return
+        if self._update_checker is not None and self._update_checker.isRunning():
+            event.ignore()
+            return
+        event.accept()
 
     def check_updates(self):
+        if self._update_checker is not None and self._update_checker.isRunning():
+            return
         from app import __version__
         self._update_checker = UpdateChecker(__version__)
         self._update_checker.result.connect(self._on_update_result)

@@ -80,10 +80,17 @@ def cmd_seq(a) -> int:
         print("--thumb wymaga mp4 (miniaturka = klatka z mp4); ignoruję --thumb.",
               file=sys.stderr)
     size_mode = "size" if a.target_mb else "crf"
+    if dirs and loose:
+        raise ValueError("Wybierz foldery albo pliki klatek — nie oba typy jednocześnie.")
+    if dirs and a.output:
+        raise ValueError("--output działa dla klatek; dla folderów użyj --mp4-in-parent.")
+    if any(not Path(f).exists() for f in a.files):
+        raise ValueError("Brakuje wybranych klatek lub folderów. Sprawdź ścieżki.")
     if dirs:
         jobs = presets.build_seq_jobs_from_folders(
             dirs, fps=a.fps, fmt=a.format, encoder=a.encoder,
             color=not a.no_color, mp4_in_seq=not a.mp4_in_parent,
+            audio_path=a.audio, auto_audio=not a.no_audio,
             thumb_width=thumb, make_mp4=not a.no_mp4,
             proxy_variants=(a.proxy or []), proxy_start_frame=a.proxy_start,
             size_mode=size_mode, crf=a.crf,
@@ -91,8 +98,20 @@ def cmd_seq(a) -> int:
             colorspace=a.exr_colorspace, aces_lut=a.aces_lut)
         return _run(jobs)
     files = _existing(loose)
+    output = a.output
+    if len(files) == 1 and not a.selected_only:
+        from app.core.sequences import detect_sequence
+        sequence = detect_sequence(files[0])
+        if sequence is not None:
+            sequence.require_complete()
+            files = list(sequence.frames)
+            if output is None:
+                folder = files[0].parent.parent if a.mp4_in_parent else files[0].parent
+                output = folder / f"{sequence.name}.{presets.SEQ_FORMATS[a.format]['ext']}"
+            print(f"Wykryto {len(files)} klatek: {sequence.first}–{sequence.last}")
     return _run([presets.build_seq_job(
         files, fps=a.fps, fmt=a.format, encoder=a.encoder, color=not a.no_color,
+        out_path=output, audio_path=a.audio, auto_audio=not a.no_audio,
         make_mp4=not a.no_mp4, proxy_variants=(a.proxy or []),
         proxy_start_frame=a.proxy_start,
         size_mode=size_mode, crf=a.crf,
@@ -128,6 +147,11 @@ def cmd_gui(a) -> int:
     # Przekaż pliki do GUI (te same receptury, pełna kontrola opcji).
     from app import gui
     return gui.main(a.files)
+
+
+def cmd_audio_setup(a) -> int:
+    from app.audio_separation import main as audio_main
+    return audio_main(["--setup"])
 
 
 def cmd_update(a) -> int:
@@ -176,7 +200,12 @@ def build_parser() -> argparse.ArgumentParser:
     pi.set_defaults(func=cmd_image)
 
     ps = sub.add_parser("seq", help="sekwencja obrazów → wideo / proxy")
-    ps.add_argument("--fps", type=int, default=presets.CONFIG.seq.default_fps)
+    ps.add_argument("--fps", type=float, default=presets.CONFIG.seq.default_fps)
+    audio = ps.add_mutually_exclusive_group()
+    audio.add_argument("--audio", type=Path, help="plik audio zamiast automatycznego dopasowania")
+    audio.add_argument("--no-audio", action="store_true", help="utwórz film bez dźwięku")
+    ps.add_argument("--selected-only", action="store_true", help="nie szukaj pozostałych klatek pojedynczego pliku")
+    ps.add_argument("--output", type=Path, help="nazwa pliku wynikowego (tryb klatek)")
     ps.add_argument("--format", default="h264", choices=[f.value for f in presets.SeqFormat])
     ps.add_argument("--encoder", default="cpu", choices=[e.value for e in presets.Encoder],
                     help="enkoder dla h264/h265: cpu / nvenc / qsv / amf")
@@ -213,6 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("files", nargs="*")
     pg.set_defaults(func=cmd_gui)
 
+    pa = sub.add_parser("audio-setup", help="zainstaluj lokalną separację głosu, muzyki i SFX")
+    pa.set_defaults(func=cmd_audio_setup)
+
     pu = sub.add_parser("update", help="sprawdź dostępność nowej wersji")
     pu.set_defaults(func=cmd_update)
 
@@ -238,7 +270,11 @@ def main(argv=None) -> int:
     log = get_logger()
     args = build_parser().parse_args(argv)
     log.info("CLI: %s %s", args.cmd, " ".join(getattr(args, "files", []) or []))
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, OSError) as exc:
+        print(f"Błąd: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

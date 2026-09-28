@@ -382,12 +382,14 @@ class TestSeq(unittest.TestCase):
             (d / f"{d.name}.wav").touch()
             files = [str(d / "frame_2.png"), str(d / "frame_10.png"),
                      str(d / "frame_1.png")]
-            job = presets.build_seq_job(files, fps=24, fmt="h264")
+            with mock.patch("app.core.sequences.probe_has_audio", return_value=True):
+                job = presets.build_seq_job(files, fps=24, fmt="h264")
             cmd = job.cmds[0]
             self.assertIn("-framerate", cmd)
             self.assertEqual(cmd[cmd.index("-framerate") + 1], "24")
             self.assertIn("seq_%05d.png", cmd[cmd.index("-i") + 1])
-            self.assertIn("-shortest", cmd)  # audio doklejone
+            self.assertIn("apad", cmd)  # krótkie audio nie ucina obrazu
+            self.assertIn("1:a:0", cmd)
             self.assertTrue(job.label.startswith("3 klatek @ 24 fps"))
             self.assertEqual(len(job.cleanup), 1)  # katalog tymczasowy
 
@@ -685,8 +687,8 @@ class TestSeqBatch(unittest.TestCase):
             job = jobs[0]
             self.assertEqual(len(job.cmds), 2)  # mp4 + miniaturka
             thumb_cmd = job.cmds[1]
-            # seek do połowy (10/2 = 5.000)
-            self.assertEqual(thumb_cmd[thumb_cmd.index("-ss") + 1], "5.000")
+            # Nowy film ma 2/24 s; stary plik nie określa jego długości.
+            self.assertEqual(thumb_cmd[thumb_cmd.index("-ss") + 1], "0.042")
             self.assertEqual(thumb_cmd[thumb_cmd.index("-frames:v") + 1], "1")
             self.assertEqual(thumb_cmd[thumb_cmd.index("-vf") + 1], "scale=320:-2,format=rgb24")
             # miniaturka w folderze nadrzędnym

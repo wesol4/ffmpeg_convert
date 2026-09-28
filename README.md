@@ -3,7 +3,7 @@
 Konwersja wideo i kompresja obrazów przez menu kontekstowe oraz GUI
 (drag & drop).
 
-**Wymagania:** `ffmpeg` w PATH, `python3` + `PyQt5`.
+**Wymagania:** FFmpeg + ffprobe, Python 3.12 i PyQt5 (instalator Windows przygotowuje je automatycznie).
 
 ---
 
@@ -95,43 +95,54 @@ python3 ~/git/ffmpeg_convert/app/gui.py
 
 ---
 
-## Windows (menu kontekstowe Eksploratora)
+## Windows 10/11 x64
 
-### Instalacja
+Pobierz **całe repozytorium**, rozpakuj je i uruchom `win\setup.bat`.
+Instalator sprawdza **Python 3.12 64-bit**, a przy jego braku proponuje instalację
+przez `winget`. Gdy `winget` jest niedostępny, zainstaluj App Installer ze sklepu
+Microsoft lub Python 3.12 ręcznie z python.org i uruchom instalator ponownie.
 
-Uruchom **`win\setup.bat`** (dwukrotne kliknięcie, działa na „gołym”
-Windowsie 11, bez wymagań wstępnych). Menu instalatora:
+Menu:
 
-- **1) Sprawdź zależności** — raport: Python, PyQt5, ffmpeg
-  (obecne / brak).
-- **2) Zainstaluj brakujące** — najpierw `winget`, a gdy go brak lub
-  zawiedzie — fallback na ręczne pobranie (`curl`) i instalację.
-  Instaluje Pythona (per-user, z dopisaniem do PATH), `pip install
-  PyQt5` oraz ffmpeg (rozpakowanie zip + dopisanie `bin` do user PATH).
-  Wszystko bez uprawnień administratora.
-- **3) Skopiuj `app\`** — do `%USERPROFILE%\scripts\app\`
-  (źródłem jest folder `app\` z repo, obok `win\`).
-- **4) Dodaj menu kontekstowe** — rejestruje pozycje z typem
-  `REG_EXPAND_SZ`, więc `%USERPROFILE%` rozwija się w locie dla każdego
-  użytkownika. Wideo przypinane jest do konkretnych rozszerzeń
-  (`.mp4` / `.mov` / `.mkv`), a nie do ogólnej kategorii `video`
-  (tej bywa wypinanej przez zewnętrzne odtwarzacze).
-- **5) Usuń menu kontekstowe** — odwraca wpisy z punktu 4.
+1. **Zainstaluj / aktualizuj** — sprawdza FFmpeg i ffprobe, instaluje brakujące
+   narzędzia przez `winget`, tworzy własne środowisko z PyQt5, kopiuje aplikację,
+   dodaje skrót do menu Start i menu kontekstowe plików oraz folderów.
+2. **Uruchom aplikację**.
+3. **Zainstaluj separację audio** — opcjonalny lokalny model; kilka GB miejsca.
+   Można też wybrać separację w aplikacji, aby zainstalować model przy pierwszym użyciu.
+4. **Usuń menu kontekstowe** — aplikacja i model pozostają na dysku.
+5. **Diagnostyka** — pokazuje używany interpreter, narzędzia i stan PyQt5.
+6. **Wyjdź**.
 
-Na czystym systemie: wybierz kolejno **2 → 3 → 4**, po czym kliknij
-prawym na plik wideo lub obraz → **Konwertuj … (FFmpeg)…** (Eksplorator
-może wymagać restartu / wylogowania, aby zobaczyć nowy PATH i menu).
+Instalacja jest dla bieżącego użytkownika w `%LOCALAPPDATA%\FFmpegConvert`.
+Środowisko aplikacji i model są niezależne od systemowego PyQt5.
+Zapisane ścieżki do Pythona, FFmpeg i ffprobe pozwalają uruchamiać skrót również
+z Eksploratora, który nie odświeżył jeszcze PATH.
 
-> Uwaga techniczna: instalatorem jest `.bat`, a nie `.reg`, bo klasyczne
-> wartości `REG_SZ` nie rozwijają zmiennych środowiskowych — system
-> szukałby dosłownie folderu `%USERPROFILE%`. `setup.bat` używa
-> `REG_EXPAND_SZ`, co rozwiązuje ten problem.
+Na Windows 11 pozycja **FFmpeg Convert…** może być pod **Pokaż więcej opcji**.
+Menu obejmuje filmy, PNG/JPG/EXR/TIFF/WebP i foldery sekwencji. Wybierz jedną
+klatkę, aby wykryć całą sekwencję; wiele plików dodaj wewnątrz aplikacji lub
+przeciągnij na jej okno. Klipy, audio i brakujące klatki obsługuje ten sam rdzeń co na Linuxie.
 
-### Aktualizacja
+### Aktualizacja starszej instalacji
 
-Nadpisz folder `scripts\app\` nową wersją z repozytorium, po czym w
-`win\setup.bat` wybierz ponownie **3** (i ewentualnie **4** — wpisy
-rejestru wskazują na ten sam folder, więc zwykle nie trzeba).
+Pobierz nową kopię repozytorium, zamknij aplikację i wybierz **1** w `win\setup.bat`.
+Instalator podmieni komplet modułów aplikacji, zachowując lokalny model audio.
+Stare wpisy menu wskazujące `scripts\app\gui.py` zostaną zastąpione nowymi.
+Stary folder `%USERPROFILE%\scripts\app` nie jest usuwany.
+Przy błędzie uruchomienia pojawi się komunikat z lokalizacją logu.
+
+### Sprawdzanie na Windows
+
+```powershell
+py -3.12 -m pip install pytest ruff mypy PyQt5==5.15.11
+py -3.12 -m pytest -q
+py -3.12 -m ruff check .
+py -3.12 -m mypy app
+```
+
+CI ma osobne zadania Linux/Windows. Testy Windows obejmują m.in. wpisy rejestru
+w izolowanym kluczu testowym i uruchomienie GUI przez `pythonw.exe`.
 
 ---
 
@@ -177,3 +188,68 @@ python3 app/cli.py video --preset h264 --encoder nvenc plik.mov
 - **Ostatnia klatka PNG** — wyciągnięcie ostatniej klatki.
 - **Eksport klatek (+ WAV)** — sekwencja klatek (PNG/JPG/EXR)
   i opcjonalnie audio.
+
+## Separacja głosu, muzyki i efektów
+
+W zakładce wideo wybierz **Separacja audio — głos / muzyka / SFX**, dodaj film
+i uruchom konwersję. Bandit v2 multilingual (ELUATE 0.0.3) działa lokalnie na CPU;
+nie wysyła filmu i nie zużywa kredytów. Pierwsze uruchomienie automatycznie instaluje
+biblioteki oraz model w `.audio-runtime/` obok aplikacji. Wymaga internetu,
+kilku GB wolnego miejsca, Pythona 3.12 z `venv` i zapisu w katalogu aplikacji.
+Kolejne uruchomienia działają offline. Istniejące konwersje nie wymagają tego modelu.
+
+```sh
+python3 app/cli.py audio-setup  # opcjonalna instalacja przed pierwszym użyciem
+python3 app/cli.py video --preset audio_separate film.mp4
+```
+
+Wyniki trafiają obok źródła do `film_AUDIO/` (następnie `_002`, `_003`, bez nadpisywania):
+
+- `speech.wav` — głos;
+- `music.wav` — muzyka;
+- `sfx.wav` — efekty;
+- `background_no_dialogue.wav` — muzyka i efekty bez głosu;
+- `video_without_dialogue.mkv` — obraz kopiowany bez rekompresji, tło bez głosu;
+- `report.json` — model, czas przetwarzania, koszt: 0 kredytów.
+
+WAV: stereo 48 kHz / 24 bit. Separowana jest pierwsza ścieżka audio filmu.
+W edytorze wycisz oryginalny dźwięk, ustaw `background_no_dialogue.wav` na początku
+filmu i dodaj nowego lektora na osobnej ścieżce. Do samych efektów użyj `sfx.wav`.
+Skuteczność separacji zależy od nagrania; możliwe są resztki mowy lub utrata części efektów.
+Długie nagrania wymagają więcej RAM (model wczytuje całe audio wejściowe).
+
+Model: [Bandit v2 multilingual](https://zenodo.org/records/12701995).
+Suma SHA-256 modelu jest sprawdzana przed wczytaniem. Wersje PyTorch 2.6.0 i ELUATE
+0.0.3 są przypięte, ponieważ eksport trzech ścieżek korzysta z wewnętrznego API ELUATE.
+Po błędzie instalację można ponowić; po awaryjnym zamknięciu procesu usuń pozostały
+`.audio-runtime/install.lock`, upewniając się, że żadna instalacja już nie trwa.
+
+## Jedna klatka → film z całej sekwencji
+
+Dodaj dowolną klatkę, np. `shot.1050.exr`. Program pokaże wykrytą sekwencję,
+liczbę i zakres klatek oraz przycisk **Utwórz wideo z całej sekwencji**.
+Zwykła konwersja wybranego obrazu pozostaje dostępna; tryb wideo włącza się
+dopiero po kliknięciu przycisku. Można wrócić do obrazów bez ponownego dodawania plików.
+
+Ustaw FPS (także 23,976), nazwę filmu, format i dźwięk:
+
+- dopasuj audio po nazwie sekwencji lub folderu;
+- wskaż własny plik audio albo film zawierający dźwięk;
+- utwórz film bez audio.
+
+Krótka ścieżka jest uzupełniana ciszą, długa przycinana do długości obrazu.
+Nie są dołączane przypadkowe nagrania z folderu. Kilka pasujących ścieżek wymaga
+wskazania jednej. Istniejący plik wynikowy jest chroniony przed nadpisaniem.
+Brakujące numery klatek są zgłaszane; program nie skraca samowolnie osi czasu.
+Jeśli folder zawiera kilka sekwencji, wybierz klatkę z właściwej zamiast całego folderu.
+
+CLI też wykrywa sekwencję po podaniu pojedynczej klatki:
+
+```sh
+python3 app/cli.py seq --fps 23.976 shot.1050.exr
+python3 app/cli.py seq --fps 24 --audio lektor.wav --output reklama.mp4 shot.1050.exr
+python3 app/cli.py seq --no-audio shot.1050.exr
+python3 app/cli.py seq --selected-only shot.1050.exr  # tylko wskazana klatka
+```
+
+Zasady pracy z projektem i lokalne polecenia sprawdzające: [CLAUDE.md](CLAUDE.md).

@@ -15,6 +15,7 @@ from app.config import CONFIG
 from app.core import probe
 from app.core.ffmpeg import FFMPEG, Encoder
 from app.core.jobs import Job
+from app.core.process import console_python
 
 
 class _SimpleSpec(TypedDict):
@@ -68,6 +69,7 @@ class VideoPreset(StrEnum):
     CINEFORM = "cineform"
     LAST_FRAME = "last_frame"
     FRAMES = "frames"
+    AUDIO_SEPARATE = "audio_separate"
 
 
 # Presety o stałej recepturze (jedna komenda, sufix + rozszerzenie).
@@ -111,6 +113,7 @@ SPECIAL_VIDEO = {
     VideoPreset.H264SIZE: "MP4 H.264 (kontrola rozmiaru)",
     VideoPreset.LAST_FRAME: "Ostatnia klatka PNG",
     VideoPreset.FRAMES: "Eksport klatek (+ WAV)",
+    VideoPreset.AUDIO_SEPARATE: "Separacja audio — głos / muzyka / SFX",
 }
 
 # Kolejność prezentacji w UI (id -> etykieta).
@@ -124,6 +127,7 @@ VIDEO_PRESETS = [
     (VideoPreset.CINEFORM, SIMPLE_VIDEO[VideoPreset.CINEFORM]["label"]),
     (VideoPreset.LAST_FRAME, SPECIAL_VIDEO[VideoPreset.LAST_FRAME]),
     (VideoPreset.FRAMES, SPECIAL_VIDEO[VideoPreset.FRAMES]),
+    (VideoPreset.AUDIO_SEPARATE, SPECIAL_VIDEO[VideoPreset.AUDIO_SEPARATE]),
 ]
 
 
@@ -251,6 +255,10 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
             cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), "-update", "1", str(out_path)]
             jobs.append(Job(label=f"{src.name} → {out_path.name}", cmds=[cmd],
                             mkdir=src.parent, duration=probe.probe_duration(src)))
+        elif preset == VideoPreset.AUDIO_SEPARATE:
+            script = Path(__file__).resolve().parents[1] / "audio_separation.py"
+            jobs.append(Job(label=f"{src.name} → {base}_AUDIO/ (głos, muzyka, SFX, film bez lektora)",
+                            cmds=[[console_python(), str(script), str(src.resolve())]]))
         elif preset == VideoPreset.FRAMES:
             jobs.append(_frames_job(src, base, frames_format, frames_with_wav))
         else:  # nie powinno się zdarzyć (enum wyczerpuje przypadki)

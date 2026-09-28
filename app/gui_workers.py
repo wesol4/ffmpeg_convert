@@ -13,19 +13,19 @@ from app import runner
 class ConvertWorker(QThread):
     log = pyqtSignal(str)
     percent = pyqtSignal(float)
-    done = pyqtSignal()
+    done = pyqtSignal(int, int)
 
     def __init__(self, jobs):
         super().__init__()
         self.jobs = jobs
 
     def run(self):
-        runner.run_jobs(
+        ok = runner.run_jobs(
             self.jobs,
             on_log=self.log.emit,
             on_percent=lambda frac: self.percent.emit(frac),
         )
-        self.done.emit()
+        self.done.emit(ok, len(self.jobs))
 
 
 class UpdateChecker(QThread):

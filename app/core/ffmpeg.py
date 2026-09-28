@@ -1,12 +1,26 @@
 """Stałe FFmpeg, detekcja typu pliku i enkodery sprzętowe (leaf, tylko stdlib)."""
 from __future__ import annotations
 
+import json
 import shutil
 from enum import StrEnum
 from pathlib import Path
 
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
+def tool_path(name: str, config: Path | None = None) -> str:
+    """Use installer-recorded absolute paths, then PATH (also on source checkouts)."""
+    config = config or Path(__file__).resolve().parents[2] / "windows-tools.json"
+    try:
+        saved = json.loads(config.read_text(encoding="utf-8"))
+        value = saved.get(name)
+        if isinstance(value, str) and Path(value).is_file():
+            return value
+    except (OSError, ValueError, AttributeError):
+        pass
+    return shutil.which(name) or name
+
+
+FFMPEG = tool_path("ffmpeg")
+FFPROBE = tool_path("ffprobe")
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
