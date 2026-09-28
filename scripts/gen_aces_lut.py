@@ -74,12 +74,12 @@ def _ap0_to_lin709() -> list:
     return _mm(m_xyz_709, _mm(cat, m_ap0_xyz))
 
 
-def srgb_oetf(l: float) -> float:
-    if l <= 0.0:
+def srgb_oetf(linear: float) -> float:
+    if linear <= 0.0:
         return 0.0
-    if l <= 0.0031308:
-        return 12.92 * l
-    return 1.055 * (l ** (1.0 / 2.4)) - 0.055
+    if linear <= 0.0031308:
+        return 12.92 * linear
+    return 1.055 * (linear ** (1.0 / 2.4)) - 0.055
 
 
 def main() -> None:

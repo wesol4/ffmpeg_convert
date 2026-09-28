@@ -1,6 +1,7 @@
 """Per-user Windows installation, using the same app package as Linux."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,8 @@ REG_BASE = r"Software\Classes"
 
 
 def run(args, **kwargs):
+    kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
 
 
@@ -158,11 +161,14 @@ def create_shortcut():
 
 
 def install():
+    print("Sprawdzanie FFmpeg i ffprobe...", flush=True)
     tools = install_tools()
+    print("Przygotowanie srodowiska aplikacji...", flush=True)
     INSTALL.mkdir(parents=True, exist_ok=True)
     venv.EnvBuilder(with_pip=True).create(INSTALL / ".venv")
     run([python_path(), "-m", "pip", "install", "--disable-pip-version-check", "PyQt5==5.15.11"])
     run([python_path(), "-c", "from PyQt5 import QtWidgets"])
+    print("Aktualizacja plikow aplikacji i skrotow...", flush=True)
     copy_app(REPO / "app", INSTALL / "app")
     (INSTALL / "windows-tools.json").write_text(json.dumps(tools, indent=2), encoding="utf-8")
     register_menu()
@@ -173,45 +179,51 @@ def install():
 
 def check_installed():
     if not python_path().is_file() or not (INSTALL / "app/launch.py").is_file():
-        raise RuntimeError("Najpierw wybierz 1: Zainstaluj / aktualizuj.")
+        raise RuntimeError("Najpierw kliknij Zainstaluj / aktualizuj.")
 
 
-def main():
+def perform_action(action):
+    if action == "install":
+        install()
+    elif action == "launch":
+        check_installed()
+        subprocess.Popen([str(python_path(True)), str(INSTALL / "app/launch.py")])
+    elif action == "audio":
+        check_installed()
+        print("Instalowanie lokalnej separacji audio. Pobieranie moze potrwac kilka minut.", flush=True)
+        run([python_path(), INSTALL / "app/cli.py", "audio-setup"])
+    elif action == "remove-menu":
+        for key in menu_keys():
+            delete_menu_key(key)
+        print("Usunieto menu kontekstowe. Aplikacja i model pozostaja na dysku.")
+    elif action == "diagnose":
+        refresh_path()
+        print(f"Python instalatora: {sys.executable}\nAplikacja: {INSTALL}\nNarzedzia: {find_tools()}")
+        if python_path().is_file():
+            run([python_path(), "-c", "from PyQt5 import QtWidgets; print('PyQt5: OK')"])
+        else:
+            print("Aplikacja nie jest jeszcze zainstalowana.")
+    else:
+        raise ValueError(f"Nieznana operacja: {action}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--action", choices=["install", "launch", "audio", "remove-menu", "diagnose"])
+    args = parser.parse_args(argv)
     if os.name != "nt" or sys.version_info[:2] != (3, 12) or struct.calcsize("P") != 8:
-        print("Instalator wymaga Windows i Pythona 3.12 64-bit. Uruchom setup.bat.")
+        print("Instalator wymaga Windows i Pythona 3.12 64-bit. Uruchom setup.vbs.")
         return 1
-    while True:
-        print("\nFFmpeg Convert — Windows\n"
-              "1) Zainstaluj / aktualizuj aplikacje i menu\n"
-              "2) Uruchom aplikacje\n3) Zainstaluj separacje audio (opcjonalne, kilka GB)\n"
-              "4) Usun menu kontekstowe\n5) Diagnostyka\n6) Wyjdz")
-        try:
-            choice = input("Wybierz 1–6: ").strip()
-            if choice == "6":
-                return 0
-            if choice == "1":
-                install()
-            elif choice == "2":
-                check_installed()
-                subprocess.Popen([str(python_path(True)), str(INSTALL / "app/launch.py")])
-            elif choice == "3":
-                check_installed()
-                run([python_path(), INSTALL / "app/cli.py", "audio-setup"])
-            elif choice == "4":
-                for key in menu_keys():
-                    delete_menu_key(key)
-                print("Usunieto menu kontekstowe. Aplikacja i model pozostaja na dysku.")
-            elif choice == "5":
-                refresh_path()
-                print(f"Python instalatora: {sys.executable}\nAplikacja: {INSTALL}\nNarzedzia: {find_tools()}")
-                if python_path().is_file():
-                    run([python_path(), "-c", "from PyQt5 import QtWidgets; print('PyQt5: OK')"])
-                else:
-                    print("Aplikacja nie jest jeszcze zainstalowana.")
-        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-            print(f"BLAD: {exc}\nPopraw problem i ponow operacje. Instalacja nie zostala potwierdzona.")
-        except (EOFError, KeyboardInterrupt):
-            return 0
+    if args.action is None:
+        run(["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File",
+             Path(__file__).with_suffix(".ps1")])
+        return 0
+    try:
+        perform_action(args.action)
+        return 0
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f"BLAD: {exc}\nPopraw problem i ponow operacje.", file=sys.stderr, flush=True)
+        return 1
 
 
 if __name__ == "__main__":

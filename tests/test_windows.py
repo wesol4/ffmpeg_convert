@@ -20,6 +20,23 @@ spec.loader.exec_module(setup)
 
 
 class WindowsPortabilityTests(unittest.TestCase):
+    def test_installer_actions_dispatch_without_interactive_input(self):
+        with patch.object(setup, "install") as install:
+            setup.perform_action("install")
+            install.assert_called_once()
+        with patch.object(setup, "check_installed"), patch.object(setup, "run") as run:
+            setup.perform_action("audio")
+            self.assertEqual(run.call_args.args[0][-1], "audio-setup")
+        with self.assertRaises(ValueError):
+            setup.perform_action("invalid")
+
+    @unittest.skipUnless(os.name == "nt", "real Windows needed")
+    def test_windowed_installer_starts_without_python_dependencies(self):
+        script = Path(__file__).resolve().parents[1] / "win/setup.ps1"
+        subprocess.run(["powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass",
+                        "-File", str(script), "-SmokeTest"], check=True, timeout=30,
+                       capture_output=True, text=True)
+
     def test_pythonw_gui_uses_console_worker(self):
         with patch.object(sys, "executable", str(Path("Python folder") / "pythonw.exe")):
             self.assertEqual(Path(process.console_python()).name, "python.exe")

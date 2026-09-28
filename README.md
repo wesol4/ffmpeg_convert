@@ -97,12 +97,13 @@ python3 ~/git/ffmpeg_convert/app/gui.py
 
 ## Windows 10/11 x64
 
-Pobierz **całe repozytorium**, rozpakuj je i uruchom `win\setup.bat`.
-Instalator sprawdza **Python 3.12 64-bit**, a przy jego braku proponuje instalację
-przez `winget`. Gdy `winget` jest niedostępny, zainstaluj App Installer ze sklepu
+Pobierz **całe repozytorium**, rozpakuj je i uruchom **`win\setup.vbs`**.
+Instalator otwiera zwykłe okno Windows: przyciski, wskaźnik pracy i szczegóły błędów.
+Przycisk **Zainstaluj / aktualizuj** przygotowuje również Python 3.12 64-bit przez
+`winget`, jeśli go brakuje. Nie trzeba mieć Pythona, żeby otworzyć okno instalatora. Gdy `winget` jest niedostępny, zainstaluj App Installer ze sklepu
 Microsoft lub Python 3.12 ręcznie z python.org i uruchom instalator ponownie.
 
-Menu:
+W oknie instalatora dostępne są przyciski:
 
 1. **Zainstaluj / aktualizuj** — sprawdza FFmpeg i ffprobe, instaluje brakujące
    narzędzia przez `winget`, tworzy własne środowisko z PyQt5, kopiuje aplikację,
@@ -112,7 +113,13 @@ Menu:
    Można też wybrać separację w aplikacji, aby zainstalować model przy pierwszym użyciu.
 4. **Usuń menu kontekstowe** — aplikacja i model pozostają na dysku.
 5. **Diagnostyka** — pokazuje używany interpreter, narzędzia i stan PyQt5.
-6. **Wyjdź**.
+6. **Zamknij** — aktywny po zakończeniu operacji.
+
+Długie operacje działają w tle, a ich komunikaty trafiają do pola szczegółów.
+Przycisk **Kopiuj szczegóły** ułatwia przekazanie błędu. `setup.bat` pozostaje
+zgodnym wstecznie skrótem; aby nie pojawiła się nawet krótko konsola, użyj `setup.vbs`.
+Jeśli firma blokuje Windows Script Host, można uruchomić `setup.ps1` przez PowerShell.
+Polityka wykonywania jest ustawiana tylko dla procesu instalatora, bez trwałych zmian systemu.
 
 Instalacja jest dla bieżącego użytkownika w `%LOCALAPPDATA%\FFmpegConvert`.
 Środowisko aplikacji i model są niezależne od systemowego PyQt5.
@@ -126,7 +133,7 @@ przeciągnij na jej okno. Klipy, audio i brakujące klatki obsługuje ten sam rd
 
 ### Aktualizacja starszej instalacji
 
-Pobierz nową kopię repozytorium, zamknij aplikację i wybierz **1** w `win\setup.bat`.
+Pobierz nową kopię repozytorium, zamknij aplikację i kliknij **Zainstaluj / aktualizuj** w `win\setup.vbs`.
 Instalator podmieni komplet modułów aplikacji, zachowując lokalny model audio.
 Stare wpisy menu wskazujące `scripts\app\gui.py` zostaną zastąpione nowymi.
 Stary folder `%USERPROFILE%\scripts\app` nie jest usuwany.
