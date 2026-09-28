@@ -26,3 +26,5 @@ exclude = ["app/gui.*\\.py", "app/cli\\.py"]
 [[tool.mypy.overrides]]
 module = "PyQt5.*"
 ignore_missing_imports = true
+[tool.pytest.ini_options]
+pythonpath = ["."]
