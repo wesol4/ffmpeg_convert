@@ -766,13 +766,13 @@ class TestSeqProxy(unittest.TestCase):
     def test_no_proxy_keeps_existing_behavior(self):
         # proxy_variants=() → tylko mp4, jeden cmd (zachowanie dotychczasowe).
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "seqA")
+            a = self._make_folder(Path(root).resolve(), "seqA")
             jobs = presets.build_seq_jobs_from_folders([a], fmt="h264")
             self.assertEqual(len(jobs[0].cmds), 1)
 
     def test_proxy_half_has_scale(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot")
+            a = self._make_folder(Path(root).resolve(), "shot")
             jobs = presets.build_seq_jobs_from_folders([a], fmt="h264",
                                                        proxy_variants=["half"])
             cmd = self._proxy_cmd(jobs[0], "proxy_half")
@@ -781,7 +781,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_proxy_png16_rgb48le(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot")
+            a = self._make_folder(Path(root).resolve(), "shot")
             jobs = presets.build_seq_jobs_from_folders([a], fmt="h264",
                                                        proxy_variants=["png16"])
             cmd = self._proxy_cmd(jobs[0], "proxy_png16")
@@ -791,7 +791,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_no_mp4_with_proxy(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot")
+            a = self._make_folder(Path(root).resolve(), "shot")
             jobs = presets.build_seq_jobs_from_folders(
                 [a], fmt="h264", make_mp4=False, proxy_variants=["jpg"])
             job = jobs[0]
@@ -802,7 +802,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_proxy_start_frame_configurable(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot")
+            a = self._make_folder(Path(root).resolve(), "shot")
             jobs = presets.build_seq_jobs_from_folders(
                 [a], fmt="h264", proxy_variants=["jpg"], proxy_start_frame=1)
             cmd = self._proxy_cmd(jobs[0], "proxy_jpg")
@@ -811,7 +811,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_proxy_exr_aces_applies_lut(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot", ext="exr")
+            a = self._make_folder(Path(root).resolve(), "shot", ext="exr")
             with mock.patch("app.core.probe.has_filter", return_value=True):
                 jobs = presets.build_seq_jobs_from_folders(
                     [a], fmt="h264", proxy_variants=["jpg", "png16"])
@@ -826,7 +826,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_proxy_exr_no_color_keeps_linear(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot", ext="exr")
+            a = self._make_folder(Path(root).resolve(), "shot", ext="exr")
             jobs = presets.build_seq_jobs_from_folders(
                 [a], fmt="h264", color=False, proxy_variants=["png16"])
             cmd = self._proxy_cmd(jobs[0], "proxy_png16")
@@ -837,7 +837,7 @@ class TestSeqProxy(unittest.TestCase):
 
     def test_multiple_variants(self):
         with tempfile.TemporaryDirectory() as root:
-            a = self._make_folder(Path(root), "shot", frames=4)
+            a = self._make_folder(Path(root).resolve(), "shot", frames=4)
             jobs = presets.build_seq_jobs_from_folders(
                 [a], fmt="h264", proxy_variants=["jpg", "png16", "half"])
             job = jobs[0]
@@ -852,7 +852,7 @@ class TestSeqProxy(unittest.TestCase):
             lut = Path(root) / "my_aces.cube"
             lut.write_text("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n"
                            "0 0 1\n1 0 1\n0 1 1\n1 1 1\n")
-            a = self._make_folder(Path(root), "shot", ext="exr")
+            a = self._make_folder(Path(root).resolve(), "shot", ext="exr")
             with mock.patch("app.core.probe.has_filter", return_value=True):
                 jobs = presets.build_seq_jobs_from_folders(
                     [a], fmt="h264", proxy_variants=["jpg"], aces_lut=str(lut))
