@@ -174,6 +174,9 @@ python3 -m unittest discover -s tests -v        # lokalnie bez zależności
 - **MP4 H.264 (CRF 18)** — wysoka jakość, dobra kompatybilność.
 - **MP4 H.264 (kontrola rozmiaru)** — CRF lub docelowy rozmiar w MB
   (2 przebiegi).
+- **MP4 H.264 20 Mb/s (limit, 2 przebiegi)** — dla odtwarzaczy z limitem
+  strumienia (np. ekrany LED): twardy sufit 20 Mb/s w każdej sekundzie (wideo + audio,
+  maxrate 16 Mb/s + bufor 4 Mb). Limit w `CONFIG.h264rate`. CLI: `--preset h264_20m`.
 - **MP4 H.265 / HEVC (CRF 23)** — mniejszy rozmiar niż H.264.
 
 ### Enkodery sprzętowe (GPU)

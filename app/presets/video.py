@@ -62,6 +62,7 @@ class VideoPreset(StrEnum):
     z argparse choices, bash, dict keys). Literówka → ValueError przy coerce."""
     H264 = "h264"
     H264SIZE = "h264size"
+    H264_20M = "h264_20m"
     H265 = "h265"
     DNXHD = "dnxhd"
     DNXHR = "dnxhr"
@@ -111,6 +112,7 @@ SIMPLE_VIDEO: dict[VideoPreset, _SimpleSpec] = {
 # Presety specjalne (wieloprzebiegowe / wieloplikowe) obsługiwane osobno.
 SPECIAL_VIDEO = {
     VideoPreset.H264SIZE: "MP4 H.264 (kontrola rozmiaru)",
+    VideoPreset.H264_20M: "MP4 H.264 20 Mb/s (limit, 2 przebiegi)",
     VideoPreset.LAST_FRAME: "Ostatnia klatka PNG",
     VideoPreset.FRAMES: "Eksport klatek (+ WAV)",
     VideoPreset.AUDIO_SEPARATE: "Separacja audio — głos / muzyka / SFX",
@@ -120,6 +122,7 @@ SPECIAL_VIDEO = {
 VIDEO_PRESETS = [
     (VideoPreset.H264, SIMPLE_VIDEO[VideoPreset.H264]["label"]),
     (VideoPreset.H264SIZE, SPECIAL_VIDEO[VideoPreset.H264SIZE]),
+    (VideoPreset.H264_20M, SPECIAL_VIDEO[VideoPreset.H264_20M]),
     (VideoPreset.H265, SIMPLE_VIDEO[VideoPreset.H265]["label"]),
     (VideoPreset.DNXHD, SIMPLE_VIDEO[VideoPreset.DNXHD]["label"]),
     (VideoPreset.DNXHR, SIMPLE_VIDEO[VideoPreset.DNXHR]["label"]),
@@ -193,6 +196,36 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     )
 
 
+def _h264_rate_job(src: Path, base: str, batch: bool) -> Job:
+    """H.264 ze stałym limitem strumienia (CONFIG.h264rate, domyślnie 20 Mb/s).
+
+    Dla odtwarzaczy z limitem Mb/s (np. LED): CPU libx264 2-pass z VBV, gdzie
+    maxrate + bufor + audio = limit — żadne okno 1 s nie może go przekroczyć.
+    """
+    cfg = CONFIG.h264rate
+    suffix = f"H264_{cfg.total_kbps // 1000}M"
+    out_dir = _out_dir(src, suffix, batch)
+    out_path = out_dir / f"{base}_{suffix}.mp4"
+    has_audio = probe.probe_has_audio(src)
+    audio_k = CONFIG.audio.twopass_audio_k if has_audio else 0
+    max_k = cfg.total_kbps - cfg.bufsize_kbps - audio_k
+    rate = ["-c:v", "libx264", "-b:v", f"{max_k}k", "-maxrate", f"{max_k}k",
+            "-bufsize", f"{cfg.bufsize_kbps}k", "-preset", CONFIG.h264.preset,
+            "-pix_fmt", CONFIG.h264.pix_fmt]
+    passlog = str(out_dir / f"{base}_ffmpeg2pass")
+    pass1 = [FFMPEG, "-y", "-i", str(src), *rate, "-pass", "1", "-passlogfile", passlog,
+             "-an", "-f", "null", os.devnull]
+    pass2 = [FFMPEG, "-y", "-i", str(src), *rate, "-pass", "2", "-passlogfile", passlog]
+    pass2 += ["-c:a", CONFIG.audio.codec, "-b:a", f"{audio_k}k"] if has_audio else ["-an"]
+    pass2.append(str(out_path))
+    return Job(
+        label=f"{src.name} → {out_path.relative_to(src.parent)} "
+              f"({cfg.total_kbps / 1000:g} Mb/s, CPU 2-pass)",
+        cmds=[pass1, pass2], mkdir=out_dir, duration=probe.probe_duration(src),
+        cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")],
+    )
+
+
 def _decode_vf(src: Path) -> list:
     """-vf dla wyjścia do obrazów: nieotagowane YUV HD dekoduj macierzą 709 (jak odtwarzacze)."""
     return ["-vf", "scale=in_color_matrix=bt709"] if probe.probe_untagged_hd_yuv(src) else []
@@ -256,6 +289,8 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
             ))
         elif preset == VideoPreset.H264SIZE:
             jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb, encoder))
+        elif preset == VideoPreset.H264_20M:
+            jobs.append(_h264_rate_job(src, base, batch))
         elif preset == VideoPreset.LAST_FRAME:
             out_path = src.parent / f"{base}_last.png"
             cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), *_decode_vf(src),
