@@ -331,7 +331,7 @@ class TestSpecialVideo(unittest.TestCase):
         self.assertEqual(pass2[pass2.index("-b:v") + 1], "16000k")
         self.assertEqual(pass2[pass2.index("-bufsize") + 1], "4000k")
         self.assertIn("-an", pass2)
-        self.assertEqual(pass2[-1], "/d/clip_H264_20M.mp4")
+        self.assertEqual(pass2[-1], str(Path("/d") / "clip_H264_20M.mp4"))
         self.assertIn("20 Mb/s", job.label)
 
     def test_h264_20m_audio_fits_in_limit(self):
