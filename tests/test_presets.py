@@ -166,6 +166,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.h264size.crf_min, 18)
         self.assertEqual(cfg.h264size.crf_max, 32)
         self.assertEqual(cfg.h264size.target_mb_default, 25)
+        self.assertEqual(cfg.h264rate.total_kbps, 20000)
         self.assertEqual(cfg.image.scale_snaps, [10, 25, 50, 75, 90, 100])
         self.assertEqual(cfg.image.scale_default, 50)
         self.assertEqual(cfg.seq.default_fps, 24)
@@ -315,6 +316,28 @@ class TestSpecialVideo(unittest.TestCase):
     def test_unknown_preset_raises(self):
         with self.assertRaises(ValueError):
             presets.build_video_jobs("nope", [Path("/d/x.mov")])
+
+    def _rate_job(self, has_audio):
+        with mock.patch("app.core.probe.probe_has_audio", return_value=has_audio), \
+             mock.patch("app.core.probe.probe_duration", return_value=15.0):
+            return presets.build_video_jobs("h264_20m", [Path("/d/clip.mov")])[0]
+
+    def test_h264_20m_caps_stream(self):
+        # Twardy limit 20 Mb/s: maxrate + bufor VBV = limit, 2 przebiegi CPU.
+        job = self._rate_job(has_audio=False)
+        pass1, pass2 = job.cmds
+        self.assertIn("-f", pass1)
+        self.assertEqual(pass2[pass2.index("-maxrate") + 1], "16000k")
+        self.assertEqual(pass2[pass2.index("-b:v") + 1], "16000k")
+        self.assertEqual(pass2[pass2.index("-bufsize") + 1], "4000k")
+        self.assertIn("-an", pass2)
+        self.assertEqual(pass2[-1], str(Path("/d") / "clip_H264_20M.mp4"))
+        self.assertIn("20 Mb/s", job.label)
+
+    def test_h264_20m_audio_fits_in_limit(self):
+        pass2 = self._rate_job(has_audio=True).cmds[1]
+        self.assertEqual(pass2[pass2.index("-maxrate") + 1], "15872k")  # 20000 - 4000 - 128 audio
+        self.assertEqual(pass2[pass2.index("-b:a") + 1], "128k")
 
 
 class TestImages(unittest.TestCase):

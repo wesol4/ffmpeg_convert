@@ -55,6 +55,16 @@ class H264SizeConfig:
 
 
 @dataclass(frozen=True)
+class H264RateConfig:
+    # Twardy limit strumienia (np. odtwarzacze LED / emisja z limitem Mb/s), 2 przebiegi.
+    # Każde okno 1 s <= maxrate * 1 s + bufor VBV, więc maxrate = total - bufor (- audio)
+    # gwarantuje <= total_kbps w każdej sekundzie. Zwykłe VBV (maxrate = limit, bufor 0,5 s)
+    # dawało na realnym materiale do 23 Mb/s w oknie 1 s przy cięciach scen.
+    total_kbps: int = 20000
+    bufsize_kbps: int = 4000
+
+
+@dataclass(frozen=True)
 class ImageConfig:
     jpg_ext: str = "jpg"
     compressed_subdir: str = "compressed"
@@ -160,6 +170,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
     h264size: H264SizeConfig = field(default_factory=H264SizeConfig)
+    h264rate: H264RateConfig = field(default_factory=H264RateConfig)
     image: ImageConfig = field(default_factory=ImageConfig)
     seq: SeqConfig = field(default_factory=SeqConfig)
     color: ColorConfig = field(default_factory=ColorConfig)

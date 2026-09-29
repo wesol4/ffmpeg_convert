@@ -247,6 +247,29 @@ class TestColorMatrixRealFFmpeg(unittest.TestCase):
             self._close(_rgb_at_center(png, "bt709"))
 
 
+class TestH264RateRealFFmpeg(unittest.TestCase):
+    def test_h264_20m_no_second_over_limit(self):
+        # Szum = trudny materiał: bez limitu libx264 poszedłby dużo wyżej.
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "noise.mov"
+            subprocess.run([presets.FFMPEG, "-v", "error", "-f", "lavfi", "-i",
+                            "testsrc2=s=1920x1080:r=25:d=3,noise=alls=40:allf=t",
+                            "-c:v", "prores_ks", "-profile:v", "3", str(src)], check=True)
+            runner.run_job(presets.build_video_jobs("h264_20m", [src])[0])
+            out = d / "noise_H264_20M.mp4"
+            sizes = subprocess.run(
+                [presets.FFPROBE, "-v", "error", "-select_streams", "v",
+                 "-show_entries", "packet=size", "-of", "csv=p=0", str(out)],
+                check=True, capture_output=True, text=True).stdout.split()
+            bits = [int(x) * 8 for x in sizes]
+            self.assertEqual(len(bits), 75)
+            # Każde przesuwne okno 1 s (25 klatek) <= 20 Mb/s.
+            windows = [sum(bits[i:i + 25]) for i in range(len(bits) - 24)]
+            self.assertLessEqual(max(windows), 20_000_000, max(windows))
+            self.assertFalse((d / "noise_ffmpeg2pass-0.log").exists())
+
+
 class TestRunnerLogging(unittest.TestCase):
     def test_logs_ok_and_error(self):
         cap = _Capture()
