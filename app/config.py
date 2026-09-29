@@ -157,7 +157,9 @@ class ColorConfig:
     # Wymaga zscale; bez niej mp4 z ACES degraduje (swscale używa macierzy domyślnej).
     aces_mp4_yuv: str = ("zscale=tin=iec61966-2-1:min=gbr:pin=709:rin=pc:"
                          "t=iec61966-2-1:m=709:p=709:r=tv,format=yuv420p")
-    color_tags: tuple = ("-color_primaries", "bt709", "-color_trc", "iec61966-2-1",
+    # Wideo: tagi bt709 także dla transferu — tego oczekują YouTube, TV i programy
+    # montażowe (tag sRGB bywa ignorowany albo źle czytany). JPG zostaje z tagiem sRGB.
+    color_tags: tuple = ("-color_primaries", "bt709", "-color_trc", "bt709",
                          "-colorspace", "bt709", "-color_range", "tv")
     color_tags_jpg: tuple = ("-color_primaries", "bt709", "-color_trc", "iec61966-2-1",
                              "-colorspace", "bt709", "-color_range", "pc")

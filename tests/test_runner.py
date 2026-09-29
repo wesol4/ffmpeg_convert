@@ -7,6 +7,8 @@ import logging
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -268,6 +270,108 @@ class TestH264RateRealFFmpeg(unittest.TestCase):
             windows = [sum(bits[i:i + 25]) for i in range(len(bits) - 24)]
             self.assertLessEqual(max(windows), 20_000_000, max(windows))
             self.assertFalse((d / "noise_ffmpeg2pass-0.log").exists())
+
+
+def _probe(path: Path, entries: str) -> str:
+    return subprocess.run([presets.FFPROBE, "-v", "error", "-select_streams", "v:0",
+                           "-show_entries", entries, "-of", "default=nw=1:nk=1", str(path)],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _lavfi_mov(path: Path, spec: str) -> None:
+    subprocess.run([presets.FFMPEG, "-v", "error", "-f", "lavfi", "-i", spec,
+                    "-c:v", "prores_ks", "-profile:v", "0", str(path)], check=True)
+
+
+class TestRealProgressAndCancel(unittest.TestCase):
+    def test_progress_has_intermediate_values(self):
+        # -progress pipe:2: pasek GUI dostaje realny %, nie tylko 100% na końcu.
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "src.mov"
+            _lavfi_mov(src, "testsrc2=s=1280x720:r=25:d=12")
+            job = presets.build_video_jobs("h264", [src])[0]
+            fracs = []
+            runner.run_job(job, on_percent=fracs.append)
+            middle = [f for f in fracs if 0.0 < f < 1.0]
+            self.assertGreaterEqual(len(middle), 2, fracs)
+            self.assertEqual(fracs, sorted(fracs))
+            self.assertAlmostEqual(fracs[-1], 1.0)
+
+    def test_error_tail_is_ffmpeg_message_not_progress(self):
+        # Ogon błędu to komunikat ffmpeg, nie linie bloku -progress.
+        cmd = [presets.FFMPEG, "-f", "lavfi", "-i", "testsrc2=s=320x240:d=1",
+               "-c:v", "nie_ma_takiego_kodeka", "out.mp4"]
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(RuntimeError) as ctx:
+                runner._run_cmd([*cmd[:-1], str(Path(d) / "out.mp4")])
+        self.assertIn("nie_ma_takiego_kodeka", str(ctx.exception))
+        self.assertNotIn("out_time", str(ctx.exception))
+
+    def test_existing_output_is_an_error_not_ok(self):
+        # ffmpeg -n przy istniejącym pliku zwraca 0 — runner nie może zgłosić sukcesu.
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "x.png"
+            out.write_bytes(b"old")
+            cmd = [presets.FFMPEG, "-n", "-f", "lavfi", "-i", "color=red:s=4x4:d=0.1",
+                   "-frames:v", "1", str(out)]
+            with self.assertRaises(RuntimeError) as ctx:
+                runner.run_job(presets.Job(label="t", cmds=[cmd], outputs=[out]))
+            self.assertIn("już istniał", str(ctx.exception))
+            self.assertEqual(out.read_bytes(), b"old")
+
+    def test_cancel_stops_job_removes_partial_output_and_skips_rest(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "long.mov"
+            _lavfi_mov(src, "testsrc2=s=1280x720:r=25:d=60")
+            jobs = presets.build_video_jobs("h264", [src]) + presets.build_video_jobs("h265", [src])
+            token = runner.CancelToken()
+            logs: list = []
+            threading.Timer(1.5, token.cancel).start()
+            t0 = time.monotonic()
+            ok = runner.run_jobs(jobs, on_log=logs.append, cancel=token)
+            self.assertLess(time.monotonic() - t0, 20)
+            self.assertEqual(ok, 0)
+            self.assertFalse((d / "long_H264.mp4").exists())   # niedokończony plik usunięty
+            self.assertFalse((d / "long_HEVC.mp4").exists())   # drugi job nie wystartował
+            self.assertTrue(any(m.startswith("PRZERWANO") for m in logs), logs)
+
+    def test_failed_job_never_deletes_existing_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            existing = Path(d) / "keep.mp4"
+            existing.write_bytes(b"user data")
+            job = presets.Job(label="t", cmds=[_ffmpeg_fail_cmd()], outputs=[existing])
+            with self.assertRaises(RuntimeError):
+                runner.run_job(job)
+            self.assertEqual(existing.read_bytes(), b"user data")
+
+
+class TestDeliveryFlagsRealFFmpeg(unittest.TestCase):
+    def test_mp4_faststart_hvc1_and_dnxhd_keeps_aspect(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "wide.mov"  # 32:9, jak ekrany LED hotelu
+            _lavfi_mov(src, "testsrc2=s=1920x540:r=25:d=0.4")
+            for preset in ("h264", "h265", "dnxhd"):
+                runner.run_job(presets.build_video_jobs(preset, [src])[0])
+            h264 = (d / "wide_H264.mp4").read_bytes()
+            self.assertLess(h264.find(b"moov"), h264.find(b"mdat"))       # faststart
+            self.assertEqual(_probe(d / "wide_HEVC.mp4", "stream=codec_tag_string"), "hvc1")
+            dnx = _probe(d / "wide_DNxHD.mov", "stream=width,height,sample_aspect_ratio").split()
+            self.assertEqual(dnx, ["1920", "1080", "1:1"])                  # pasy, nie ściskanie
+
+    def test_second_conversion_does_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "clip.mov"
+            _lavfi_mov(src, "testsrc2=s=320x240:r=25:d=0.2")
+            first = presets.build_video_jobs("h264", [src])[0]
+            runner.run_job(first)
+            size = (d / "clip_H264.mp4").stat().st_size
+            second = presets.build_video_jobs("h264", [src])[0]
+            runner.run_job(second)
+            self.assertEqual((d / "clip_H264.mp4").stat().st_size, size)
+            self.assertTrue((d / "clip_H264_002.mp4").is_file())
 
 
 class TestRunnerLogging(unittest.TestCase):
