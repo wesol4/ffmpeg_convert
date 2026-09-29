@@ -129,19 +129,29 @@ def _run_cmd(cmd: list, on_percent: Callable[[float], None] | None = None,
         cancel._attach(proc)
     last: deque[str] = deque(maxlen=5)
     stream = proc.stderr
+    reported = 0.0
+
+    def report(frac: float) -> None:
+        # Tylko rosnąco: ten sam czas przychodzi jako out_time_us/_ms/out_time
+        # (tekstowy bywa minimalnie mniejszy po zaokrągleniu).
+        nonlocal reported
+        if on_percent and frac > reported:
+            reported = frac
+            on_percent(frac)
+
     try:
         if stream is not None:
             for line in stream:
                 line = line.rstrip()
-                if line.startswith("progress_fraction=") and on_percent:
+                if line.startswith("progress_fraction="):
                     try:
-                        on_percent(max(0.0, min(1.0, float(line.split("=", 1)[1]))))
+                        report(max(0.0, min(1.0, float(line.split("=", 1)[1]))))
                     except ValueError:
                         pass
                     continue
                 us = _out_time_us(line)
-                if us is not None and duration and duration > 0 and on_percent:
-                    on_percent(min(1.0, us / (duration * 1_000_000)))
+                if us is not None and duration and duration > 0:
+                    report(min(1.0, us / (duration * 1_000_000)))
                 if line and not _PROGRESS_LINE.fullmatch(line):
                     last.append(line)
     finally:
