@@ -250,6 +250,12 @@ wskazania jednej. Istniejący plik wynikowy jest chroniony przed nadpisaniem.
 Brakujące numery klatek są zgłaszane; program nie skraca samowolnie osi czasu.
 Jeśli folder zawiera kilka sekwencji, wybierz klatkę z właściwej zamiast całego folderu.
 
+Kolor: klatki PNG/TIFF/DPX (RGB sRGB) trafiają do wideo macierzą BT.709 z tagami
+bt709, tak jak dekodują je odtwarzacze i programy montażowe dla HD/4K. Przy H.264/H.265
+nieparzysty wymiar jest przycinany o 1 px (4:2:0 wymaga parzystych). W drugą stronę
+(eksport klatek, ostatnia klatka) nieotagowane wideo HD, np. z generatorów AI,
+dekodowane jest również macierzą 709.
+
 CLI też wykrywa sekwencję po podaniu pojedynczej klatki:
 
 ```sh

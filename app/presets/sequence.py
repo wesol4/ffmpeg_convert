@@ -54,6 +54,32 @@ SEQ_FORMATS: dict[SeqFormat, _SeqSpec] = {
 }
 
 
+# Sekwencje dekodowane jako RGB w sRGB (display) — do wideo konwertowane macierzą 709.
+# JPG pomijamy: dekoduje się już jako YUV (601, pełny zakres).
+RGB_DISPLAY_EXTS = frozenset({"png", "tif", "tiff", "dpx"})
+EVEN_CROP = "crop=trunc(iw/2)*2:trunc(ih/2)*2"
+
+
+def _vf_and_pix(vargs: list) -> tuple:
+    """Z vargs formatu: (filtr -vf lub None, pix_fmt, vargs bez -vf)."""
+    vf = vargs[vargs.index("-vf") + 1] if "-vf" in vargs else None
+    pix = vargs[vargs.index("-pix_fmt") + 1]
+    rest = [a for i, a in enumerate(vargs)
+            if a != "-vf" and not (i > 0 and vargs[i - 1] == "-vf")]
+    return vf, pix, rest
+
+
+def _rgb_to_yuv709_vf(vargs: list) -> str:
+    """RGB (sRGB) -> YUV macierzą 709, zakres TV, w docelowym pix_fmt formatu.
+
+    Filtr formatu (np. scale=1920:1080 dla DNxHD) jest doklejany do tego samego
+    scale — dwie opcje -vf nadpisałyby się (ffmpeg bierze ostatnią).
+    """
+    vf, pix, _ = _vf_and_pix(vargs)
+    size = vf.split("=", 1)[1] + ":" if vf and vf.startswith("scale=") else ""
+    return f"scale={size}out_color_matrix=bt709:out_range=tv,format={pix}"
+
+
 def _natural_key(s: str) -> list:
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
@@ -165,6 +191,14 @@ def build_seq_job(files: list, *, fps: float = 24, fmt: "SeqFormat | str" = "h26
             and fmt in (SeqFormat.H264, SeqFormat.H265)):
         color_vf, color_tags, color_tag = exr_color_vf(
             None, color, seq_ext, "mp4", colorspace=colorspace, aces_lut=aces_lut)
+    elif seq_ext.lower() in RGB_DISPLAY_EXTS:
+        # PNG/TIFF/DPX = RGB sRGB display. Bez tego swscale robi RGB->YUV macierzą 601
+        # i nie taguje pliku, a odtwarzacze/NLE dla HD+ dekodują 709 -> przesunięte kolory.
+        color_vf = _rgb_to_yuv709_vf(spec["vargs"])
+        color_tags = list(CONFIG.color.color_tags)
+    if color_vf and fmt in (SeqFormat.H264, SeqFormat.H265):
+        # 4:2:0 wymaga parzystych wymiarów: utnij 1 px zamiast cichego przeskalowania.
+        color_vf = f"{EVEN_CROP},{color_vf}"
 
     # Katalog tymczasowy z ponumerowanymi symlinkami → image2 demuxer.
     tmp = Path(tempfile.mkdtemp(prefix="ffseq_"))
@@ -216,7 +250,9 @@ def build_seq_job(files: list, *, fps: float = 24, fmt: "SeqFormat | str" = "h26
                         cmd += ["-c:v", "libx264", *vargs, *color_tags, str(mp4_out)]
                         enc_tag = ""
                     else:
-                        cmd += [*spec["vargs"], *color_tags, str(mp4_out)]
+                        # color_vf zawiera już filtr formatu (np. scale DNxHD) — bez drugiego -vf.
+                        vargs = _vf_and_pix(spec["vargs"])[2] if color_vf else spec["vargs"]
+                        cmd += [*vargs, *color_tags, str(mp4_out)]
                         enc_tag = ""
                 cmds.append(cmd)
                 label += f" → {mp4_out.name}{enc_tag}{color_tag}"
