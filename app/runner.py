@@ -58,14 +58,30 @@ class CancelToken:
     def cancel(self) -> None:
         with self._lock:
             self._event.set()
-            if self._proc is not None and self._proc.poll() is None:
-                self._proc.terminate()
+            if self._proc is not None:
+                _stop(self._proc)
 
     def _attach(self, proc: subprocess.Popen | None) -> None:
         with self._lock:
             self._proc = proc
-            if proc is not None and self._event.is_set() and proc.poll() is None:
-                proc.terminate()
+            if proc is not None and self._event.is_set():
+                _stop(proc)
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """Zakończ proces razem z potomkami.
+
+    Na Windows ffmpeg bywa uruchamiany przez nakładkę (np. shim Chocolatey), która
+    odpala prawdziwy ffmpeg jako proces potomny — samo terminate() zabiłoby tylko
+    nakładkę, a ffmpeg liczyłby dalej. Stąd taskkill /T (całe drzewo).
+    """
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True, check=False, **subprocess_options())
+    else:
+        proc.terminate()
 
 
 def _out_time_us(line: str) -> int | None:
