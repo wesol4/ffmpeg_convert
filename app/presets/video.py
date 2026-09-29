@@ -14,7 +14,7 @@ from typing import TypedDict
 from app.config import CONFIG
 from app.core import probe
 from app.core.ffmpeg import FFMPEG, Encoder
-from app.core.jobs import Job
+from app.core.jobs import Job, free_path
 from app.core.process import console_python
 
 
@@ -25,8 +25,25 @@ class _SimpleSpec(TypedDict):
     args: list
 
 
+# MP4: indeks (moov) na początku pliku — odtwarzanie w przeglądarce/odtwarzaczu
+# startuje przed pobraniem całości.
+MP4_FLAGS = ["-movflags", "+faststart"]
+# HEVC w MP4 z tagiem hvc1 — z domyślnym hev1 QuickTime/Finder/iOS nie odtworzą pliku.
+HEVC_TAG = ["-tag:v", "hvc1"]
+# DNxHD 1080p: dopasuj z zachowaniem proporcji i dopełnij czarnymi pasami (bez ściskania).
+DNXHD_FIT = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1")
+
+
 def _encoder_codec_vargs(preset: "VideoPreset", encoder: "Encoder | str",
                          quality: int) -> tuple:
+    """(codec, vargs) dla H.264/H.265; HEVC dostaje tag hvc1 (zgodność z Apple)."""
+    codec, vargs = _encoder_codec_vargs_raw(preset, encoder, quality)
+    return codec, (vargs + HEVC_TAG if preset == VideoPreset.H265 else vargs)
+
+
+def _encoder_codec_vargs_raw(preset: "VideoPreset", encoder: "Encoder | str",
+                             quality: int) -> tuple:
     """Zwraca (codec, vargs) dla H.264/H.265 z danym enkoderem i jakością.
 
     quality — wspólna skala CRF/CQ (niższa = lepsza). Dla CPU to libx264/libx265
@@ -85,11 +102,11 @@ SIMPLE_VIDEO: dict[VideoPreset, _SimpleSpec] = {
     VideoPreset.H265: dict(
         label="MP4 H.265 / HEVC (CRF 23)", suffix="HEVC", ext="mp4",
         args=["-c:v", "libx265", "-crf", "23", "-preset", "medium",
-              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"],
+              "-pix_fmt", "yuv420p", *HEVC_TAG, "-c:a", "aac", "-b:a", "192k"],
     ),
     VideoPreset.DNXHD: dict(
         label="DNxHD 1080p (120 Mb/s)", suffix="DNxHD", ext="mov",
-        args=["-vf", "scale=1920:1080", "-c:v", "dnxhd", "-b:v", "120M",
+        args=["-vf", DNXHD_FIT, "-c:v", "dnxhd", "-b:v", "120M",
               "-pix_fmt", "yuv422p", "-c:a", "pcm_s16le"],
     ),
     VideoPreset.DNXHR: dict(
@@ -141,7 +158,7 @@ def _out_dir(src: Path, suffix: str, batch: bool) -> Path:
 
 def _h264_size_job(src: Path, base: str, batch: bool,
                    size_mode: str, crf: int, target_mb: float,
-                   encoder: "Encoder | str" = "cpu") -> Job:
+                   encoder: "Encoder | str" = "cpu", taken: "set | None" = None) -> Job:
     """Preset z kontrolą rozmiaru.
 
     Tryb CRF (1 przebieg) —honory enkodera (GPU = stała jakość CQ, szybciej).
@@ -150,25 +167,25 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     """
     encoder = Encoder(encoder)
     out_dir = _out_dir(src, "H264", batch)
-    out_path = out_dir / f"{base}_H264.mp4"
+    out_path = free_path(out_dir / f"{base}_H264.mp4", taken)
     rel = out_path.relative_to(src.parent)
     dur = probe.probe_duration(src)
     enc_tag = "" if encoder == Encoder.CPU else f" [{encoder.value.upper()}]"
 
     def crf_fallback(reason: str) -> Job:
-        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264",
+        cmd = [FFMPEG, "-n", "-i", str(src), "-c:v", "libx264",
                "-crf", str(CONFIG.h264size.crf_default), "-preset", CONFIG.h264.preset,
                "-pix_fmt", CONFIG.h264.pix_fmt,
-               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
+               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, *MP4_FLAGS, str(out_path)]
         return Job(label=f"{src.name} → {rel} ({reason})", cmds=[cmd],
-                   mkdir=out_dir, duration=dur)
+                   mkdir=out_dir, duration=dur, outputs=[out_path])
 
     if size_mode == "crf":
         codec, vargs = _encoder_codec_vargs(VideoPreset.H264, encoder, crf)
-        cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
-               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
+        cmd = [FFMPEG, "-n", "-i", str(src), "-c:v", codec, *vargs,
+               "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, *MP4_FLAGS, str(out_path)]
         return Job(label=f"{src.name} → {rel} (CRF {crf}{enc_tag})", cmds=[cmd],
-                   mkdir=out_dir, duration=dur)
+                   mkdir=out_dir, duration=dur, outputs=[out_path])
 
     # Tryb docelowego rozmiaru: bitrate wideo liczony z czasu trwania (CPU 2-pass).
     if not dur or dur <= 0:
@@ -183,20 +200,20 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     pass1 = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
              "-preset", "slow", "-pix_fmt", "yuv420p", "-pass", "1",
              "-passlogfile", passlog, "-an", "-f", "null", os.devnull]
-    pass2 = [FFMPEG, "-y", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
+    pass2 = [FFMPEG, "-n", "-i", str(src), "-c:v", "libx264", "-b:v", f"{video_k}k",
              "-preset", "slow", "-pix_fmt", "yuv420p", "-pass", "2",
              "-passlogfile", passlog]
     if has_audio:
         pass2 += ["-c:a", CONFIG.audio.codec, "-b:a", f"{audio_k}k"]
-    pass2.append(str(out_path))
+    pass2 += [*MP4_FLAGS, str(out_path)]
     return Job(
         label=f"{src.name} → {rel} (~{target_mb:g} MB, {video_k}k wideo, CPU 2-pass)",
-        cmds=[pass1, pass2], mkdir=out_dir, duration=dur,
+        cmds=[pass1, pass2], mkdir=out_dir, duration=dur, outputs=[out_path],
         cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")],
     )
 
 
-def _h264_rate_job(src: Path, base: str, batch: bool) -> Job:
+def _h264_rate_job(src: Path, base: str, batch: bool, taken: "set | None" = None) -> Job:
     """H.264 ze stałym limitem strumienia (CONFIG.h264rate, domyślnie 20 Mb/s).
 
     Dla odtwarzaczy z limitem Mb/s (np. LED): CPU libx264 2-pass z VBV, gdzie
@@ -205,7 +222,7 @@ def _h264_rate_job(src: Path, base: str, batch: bool) -> Job:
     cfg = CONFIG.h264rate
     suffix = f"H264_{cfg.total_kbps // 1000}M"
     out_dir = _out_dir(src, suffix, batch)
-    out_path = out_dir / f"{base}_{suffix}.mp4"
+    out_path = free_path(out_dir / f"{base}_{suffix}.mp4", taken)
     has_audio = probe.probe_has_audio(src)
     audio_k = CONFIG.audio.twopass_audio_k if has_audio else 0
     max_k = cfg.total_kbps - cfg.bufsize_kbps - audio_k
@@ -215,14 +232,14 @@ def _h264_rate_job(src: Path, base: str, batch: bool) -> Job:
     passlog = str(out_dir / f"{base}_ffmpeg2pass")
     pass1 = [FFMPEG, "-y", "-i", str(src), *rate, "-pass", "1", "-passlogfile", passlog,
              "-an", "-f", "null", os.devnull]
-    pass2 = [FFMPEG, "-y", "-i", str(src), *rate, "-pass", "2", "-passlogfile", passlog]
+    pass2 = [FFMPEG, "-n", "-i", str(src), *rate, "-pass", "2", "-passlogfile", passlog]
     pass2 += ["-c:a", CONFIG.audio.codec, "-b:a", f"{audio_k}k"] if has_audio else ["-an"]
-    pass2.append(str(out_path))
+    pass2 += [*MP4_FLAGS, str(out_path)]
     return Job(
         label=f"{src.name} → {out_path.relative_to(src.parent)} "
               f"({cfg.total_kbps / 1000:g} Mb/s, CPU 2-pass)",
         cmds=[pass1, pass2], mkdir=out_dir, duration=probe.probe_duration(src),
-        cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")],
+        cleanup=[Path(passlog + "-0.log"), Path(passlog + "-0.log.mbtree")], outputs=[out_path],
     )
 
 
@@ -231,18 +248,19 @@ def _decode_vf(src: Path) -> list:
     return ["-vf", "scale=in_color_matrix=bt709"] if probe.probe_untagged_hd_yuv(src) else []
 
 
-def _frames_job(src: Path, base: str, frames_format: str, with_wav: bool) -> Job:
-    """Eksport klatek do podfolderu + opcjonalnie ścieżka audio WAV."""
+def _frames_job(src: Path, base: str, frames_format: str, with_wav: bool,
+                taken: "set | None" = None) -> Job:
+    """Eksport klatek do podfolderu (nowy folder, bez nadpisywania) + opcjonalnie WAV."""
     fmt = frames_format.lower()
-    frames_dir = src.parent / f"{base}_FRAMES"
+    frames_dir = free_path(src.parent / f"{base}_FRAMES", taken)
     pattern = frames_dir / f"{base}_%04d.{fmt}"
     # -fps_mode passthrough: zachowaj dokładnie tyle klatek, ile w źródle.
-    cmds = [[FFMPEG, "-y", "-i", str(src), "-fps_mode", "passthrough", *_decode_vf(src),
+    cmds = [[FFMPEG, "-n", "-i", str(src), "-fps_mode", "passthrough", *_decode_vf(src),
              str(pattern)]]
     label = f"{src.name} → {frames_dir.name}/ (klatki {fmt.upper()}"
     if with_wav:
         wav_path = frames_dir / f"{base}.wav"
-        cmds.append([FFMPEG, "-y", "-i", str(src), "-vn", "-c:a", "pcm_s24le", str(wav_path)])
+        cmds.append([FFMPEG, "-n", "-i", str(src), "-vn", "-c:a", "pcm_s24le", str(wav_path)])
         label += " + WAV"
     label += ")"
     return Job(label=label, cmds=cmds, mkdir=frames_dir, duration=probe.probe_duration(src))
@@ -264,45 +282,50 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
     batch = len(files) > 1
     enc_tag = "" if encoder == Encoder.CPU else f" [{encoder.value.upper()}]"
     jobs: list = []
+    taken: set = set()  # nazwy wynikowe zarezerwowane w tej partii
     for src in files:
         base = src.stem
         if preset in (VideoPreset.H264, VideoPreset.H265):
             spec = SIMPLE_VIDEO[preset]  # suffix/ext/label
             out_dir = _out_dir(src, spec["suffix"], batch)
-            out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
+            out_path = free_path(out_dir / f"{base}_{spec['suffix']}.{spec['ext']}", taken)
             quality = CONFIG.h264.crf if preset == VideoPreset.H264 else CONFIG.h265.crf
             codec, vargs = _encoder_codec_vargs(preset, encoder, quality)
-            cmd = [FFMPEG, "-y", "-i", str(src), "-c:v", codec, *vargs,
-                   "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, str(out_path)]
+            cmd = [FFMPEG, "-n", "-i", str(src), "-c:v", codec, *vargs,
+                   "-c:a", CONFIG.audio.codec, "-b:a", CONFIG.audio.bitrate, *MP4_FLAGS,
+                   str(out_path)]
             jobs.append(Job(
                 label=f"{src.name} → {out_path.relative_to(src.parent)}{enc_tag}",
                 cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),
+                outputs=[out_path],
             ))
         elif preset in SIMPLE_VIDEO:  # dnxhd/dnxhr/prores/cineform — CPU-only
             spec = SIMPLE_VIDEO[preset]
             out_dir = _out_dir(src, spec["suffix"], batch)
-            out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
-            cmd = [FFMPEG, "-y", "-i", str(src), *spec["args"], str(out_path)]
+            out_path = free_path(out_dir / f"{base}_{spec['suffix']}.{spec['ext']}", taken)
+            cmd = [FFMPEG, "-n", "-i", str(src), *spec["args"], str(out_path)]
             jobs.append(Job(
                 label=f"{src.name} → {out_path.relative_to(src.parent)}",
                 cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),
+                outputs=[out_path],
             ))
         elif preset == VideoPreset.H264SIZE:
-            jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb, encoder))
+            jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb, encoder, taken))
         elif preset == VideoPreset.H264_20M:
-            jobs.append(_h264_rate_job(src, base, batch))
+            jobs.append(_h264_rate_job(src, base, batch, taken))
         elif preset == VideoPreset.LAST_FRAME:
-            out_path = src.parent / f"{base}_last.png"
-            cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), *_decode_vf(src),
+            out_path = free_path(src.parent / f"{base}_last.png", taken)
+            cmd = [FFMPEG, "-n", "-sseof", "-1", "-i", str(src), *_decode_vf(src),
                    "-update", "1", str(out_path)]
             jobs.append(Job(label=f"{src.name} → {out_path.name}", cmds=[cmd],
-                            mkdir=src.parent, duration=probe.probe_duration(src)))
+                            mkdir=src.parent, duration=probe.probe_duration(src),
+                            outputs=[out_path]))
         elif preset == VideoPreset.AUDIO_SEPARATE:
             script = Path(__file__).resolve().parents[1] / "audio_separation.py"
             jobs.append(Job(label=f"{src.name} → {base}_AUDIO/ (głos, muzyka, SFX, film bez lektora)",
                             cmds=[[console_python(), str(script), str(src.resolve())]]))
         elif preset == VideoPreset.FRAMES:
-            jobs.append(_frames_job(src, base, frames_format, frames_with_wav))
+            jobs.append(_frames_job(src, base, frames_format, frames_with_wav, taken))
         else:  # nie powinno się zdarzyć (enum wyczerpuje przypadki)
             raise ValueError(f"Nieobsługiwany preset wideo: {preset}")
     return jobs

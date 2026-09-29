@@ -205,9 +205,10 @@ class TestSimpleVideo(unittest.TestCase):
         src = Path("/tmp/movie.mov")
         jobs = presets.build_video_jobs("h264", [src])
         cmd = self._job_cmd(jobs)
-        expected = [presets.FFMPEG, "-y", "-i", str(src),
+        expected = [presets.FFMPEG, "-n", "-i", str(src),
                     "-c:v", "libx264", "-crf", "18", "-preset", "slow",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart",
                     str(src.parent / "movie_H264.mp4")]
         self.assertEqual(cmd, expected)
 
@@ -284,7 +285,7 @@ class TestSpecialVideo(unittest.TestCase):
         src = Path("/d/clip.mov")
         jobs = presets.build_video_jobs("last_frame", [src])
         cmd = jobs[0].cmds[0]
-        self.assertEqual(cmd[:4], [presets.FFMPEG, "-y", "-sseof", "-1"])
+        self.assertEqual(cmd[:4], [presets.FFMPEG, "-n", "-sseof", "-1"])
         self.assertEqual(cmd[-1], str(src.parent / "clip_last.png"))
 
     def test_frames_with_wav(self):
@@ -316,6 +317,21 @@ class TestSpecialVideo(unittest.TestCase):
     def test_unknown_preset_raises(self):
         with self.assertRaises(ValueError):
             presets.build_video_jobs("nope", [Path("/d/x.mov")])
+
+    def test_batch_same_stem_gets_distinct_outputs(self):
+        # a.mov i a.mp4 w jednej partii -> a_H264.mp4 i a_H264_002.mp4 (bez kolizji).
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            outs = [j.cmds[0][-1] for j in presets.build_video_jobs("h264", [d / "a.mov", d / "a.mp4"])]
+            self.assertEqual([Path(o).name for o in outs], ["a_H264.mp4", "a_H264_002.mp4"])
+
+    def test_existing_output_gets_next_number(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "movie_last.png").touch()
+            job = presets.build_video_jobs("last_frame", [d / "movie.mov"])[0]
+            self.assertEqual(Path(job.cmds[0][-1]).name, "movie_last_002.png")
+            self.assertEqual(job.outputs, [d / "movie_last_002.png"])
 
     def _rate_job(self, has_audio):
         with mock.patch("app.core.probe.probe_has_audio", return_value=has_audio), \
@@ -489,7 +505,7 @@ class TestSeqEXRColor(unittest.TestCase):
         vf = cmd[cmd.index("-vf") + 1]
         self.assertIn("lut3d=", vf)                       # ACES: LUT AP0→709+sRGB
         self.assertIn("zscale", vf)                        # mp4: zscale RGB->YUV 709 po LUT
-        self.assertEqual(cmd[cmd.index("-color_trc") + 1], "iec61966-2-1")
+        self.assertEqual(cmd[cmd.index("-color_trc") + 1], "bt709")
         self.assertEqual(cmd[cmd.index("-colorspace") + 1], "bt709")
         self.assertEqual(cmd[cmd.index("-color_range") + 1], "tv")
         self.assertIn("AP0→sRGB", job.label)
@@ -532,12 +548,12 @@ class TestSeqEXRColor(unittest.TestCase):
         self.assertTrue(vf.startswith("crop=trunc(iw/2)*2:trunc(ih/2)*2,"))
 
     def test_png_seq_dnxhd_single_vf_with_size(self):
-        # DNxHD ma własny scale=1920:1080 — musi trafić do tego samego -vf, inaczej
-        # ffmpeg weźmie tylko ostatni filtr i zgubi macierz albo rozmiar.
+        # DNxHD ma własne dopasowanie do 1920x1080 — musi trafić do tego samego -vf,
+        # inaczej ffmpeg weźmie tylko ostatni filtr i zgubi macierz albo rozmiar.
         cmd = self._png_cmd("dnxhd")
         self.assertEqual(cmd.count("-vf"), 1)
         self.assertEqual(cmd[cmd.index("-vf") + 1],
-                         "scale=1920:1080:out_color_matrix=bt709:out_range=tv,format=yuv422p")
+                         presets.DNXHD_FIT + ",scale=out_color_matrix=bt709:out_range=tv,format=yuv422p")
 
     def test_jpg_seq_unchanged(self):
         # JPG dekoduje się jako YUV (JFIF 601) — bez konwersji RGB->YUV.

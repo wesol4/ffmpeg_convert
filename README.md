@@ -79,8 +79,8 @@ do menu i zrestartuje Nemo.
 - **Konwertuj wideo (FFmpeg)** — otwiera GUI z zaznaczonym wideo.
 - **Kompresuj / zmień nazwę obrazów** — otwiera GUI z zaznaczonymi
   obrazami.
-- **Utwórz wideo z klatek** — Zenity (FPS + format) → wspólne CLI
-  `seq`.
+- **Konwertuj wideo z klatek** — otwiera GUI z zaznaczonymi klatkami
+  (wykrywa całą sekwencję).
 - **Split Image (Grid)** — podział obrazu na siatkę X×Y.
 - **Make Flipbook (Spritesheet)** — spritesheet z zaznaczonych klatek.
 
@@ -178,6 +178,15 @@ python3 -m unittest discover -s tests -v        # lokalnie bez zależności
   strumienia (np. ekrany LED): twardy sufit 20 Mb/s w każdej sekundzie (wideo + audio,
   maxrate 16 Mb/s + bufor 4 Mb). Limit w `CONFIG.h264rate`. CLI: `--preset h264_20m`.
 - **MP4 H.265 / HEVC (CRF 23)** — mniejszy rozmiar niż H.264.
+
+Wspólne zasady wyjść wideo:
+
+- wynik nigdy nie nadpisuje poprzedniego — kolejna konwersja tego samego pliku
+  zapisze `nazwa_H264_002.mp4` itd.;
+- MP4 ma indeks na początku (`faststart`), HEVC tag `hvc1` (odtwarza się w QuickTime/iOS);
+- DNxHD 1080p dopasowuje obraz z zachowaniem proporcji (pasy), bez ściskania;
+- przycisk **Anuluj** w GUI przerywa konwersję i usuwa niedokończony plik;
+  pasek postępu pokazuje realny procent.
 
 ### Enkodery sprzętowe (GPU)
 
