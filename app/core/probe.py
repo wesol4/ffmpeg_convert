@@ -1,6 +1,7 @@
 """Odczyt metadanych przez ffprobe (długość, wymiary, obecność audio)."""
 from __future__ import annotations
 
+import json
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +37,27 @@ def probe_size(src: Path) -> Optional[tuple]:
         return int(w), int(h)
     except Exception:
         return None
+
+
+def probe_untagged_hd_yuv(src: Path) -> bool:
+    """Czy wideo to YUV HD+ (wys. >= 720) bez zapisanej macierzy (color_space).
+
+    Takie pliki (np. z generatorów AI) są kodowane macierzą 709, ale swscale przy
+    dekodowaniu do RGB bez tagu przyjmuje 601 — klatki PNG wychodzą z przesuniętym
+    kolorem. Wołający wymusza wtedy in_color_matrix=bt709 (jak odtwarzacze HD).
+    """
+    try:
+        out = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=pix_fmt,height,color_space", "-of", "json", str(src)],
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", **subprocess_options(),
+        )
+        stream = json.loads(out.stdout)["streams"][0]
+    except Exception:
+        return False
+    return (str(stream.get("pix_fmt", "")).startswith("yuv")
+            and int(stream.get("height") or 0) >= 720
+            and stream.get("color_space", "unknown") in ("", "unknown"))
 
 
 def probe_has_audio(src: Path) -> bool:

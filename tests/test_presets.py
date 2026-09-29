@@ -302,6 +302,16 @@ class TestSpecialVideo(unittest.TestCase):
                                         frames_with_wav=False)
         self.assertEqual(len(jobs[0].cmds), 1)
 
+    def test_untagged_hd_decoded_as_709(self):
+        # Nieotagowane YUV HD (np. klipy z generatorów AI) -> klatki macierzą 709, nie 601.
+        src = Path("/d/clip.mp4")
+        for preset in ("frames", "last_frame"):
+            for untagged, expected in ((True, True), (False, False)):
+                with self.subTest(preset=preset, untagged=untagged), \
+                     mock.patch("app.core.probe.probe_untagged_hd_yuv", return_value=untagged):
+                    cmd = presets.build_video_jobs(preset, [src], frames_with_wav=False)[0].cmds[0]
+                    self.assertEqual("scale=in_color_matrix=bt709" in cmd, expected)
+
     def test_unknown_preset_raises(self):
         with self.assertRaises(ValueError):
             presets.build_video_jobs("nope", [Path("/d/x.mov")])
@@ -475,14 +485,42 @@ class TestSeqEXRColor(unittest.TestCase):
         self.assertNotIn("-color_trc", cmd)
         self.assertNotIn("→sRGB", job.label)
 
-    def test_png_seq_unchanged(self):
+    def _png_cmd(self, fmt, ext="png"):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d).resolve()
-            (d / "f_1.png").touch()
-            with mock.patch("app.core.probe.has_filter", return_value=True):
-                job = presets.build_seq_job([str(d / "f_1.png")], fmt="h264")
-            self.assertNotIn("-vf", job.cmds[0])
-            self.assertNotIn("-color_trc", job.cmds[0])
+            (d / f"f_1.{ext}").touch()
+            return presets.build_seq_job([str(d / f"f_1.{ext}")], fmt=fmt).cmds[0]
+
+    def test_png_seq_uses_709_matrix_and_tags(self):
+        # PNG = RGB sRGB: RGB->YUV macierzą 709 + tagi 709 (bez tego swscale bierze 601).
+        for fmt, pix in (("h264", "yuv420p"), ("h265", "yuv420p"), ("prores", "yuv422p10le")):
+            with self.subTest(fmt=fmt):
+                cmd = self._png_cmd(fmt)
+                self.assertEqual(cmd.count("-vf"), 1)
+                vf = cmd[cmd.index("-vf") + 1]
+                self.assertIn("out_color_matrix=bt709", vf)
+                self.assertTrue(vf.endswith(f"format={pix}"))
+                self.assertEqual(cmd[cmd.index("-colorspace") + 1], "bt709")
+
+    def test_png_seq_mp4_crops_to_even_size(self):
+        # 4:2:0 wymaga parzystych wymiarów — 1 px przycięcia zamiast przeskalowania.
+        cmd = self._png_cmd("h264")
+        vf = cmd[cmd.index("-vf") + 1]
+        self.assertTrue(vf.startswith("crop=trunc(iw/2)*2:trunc(ih/2)*2,"))
+
+    def test_png_seq_dnxhd_single_vf_with_size(self):
+        # DNxHD ma własny scale=1920:1080 — musi trafić do tego samego -vf, inaczej
+        # ffmpeg weźmie tylko ostatni filtr i zgubi macierz albo rozmiar.
+        cmd = self._png_cmd("dnxhd")
+        self.assertEqual(cmd.count("-vf"), 1)
+        self.assertEqual(cmd[cmd.index("-vf") + 1],
+                         "scale=1920:1080:out_color_matrix=bt709:out_range=tv,format=yuv422p")
+
+    def test_jpg_seq_unchanged(self):
+        # JPG dekoduje się jako YUV (JFIF 601) — bez konwersji RGB->YUV.
+        cmd = self._png_cmd("h264", ext="jpg")
+        self.assertNotIn("-vf", cmd)
+        self.assertNotIn("-color_trc", cmd)
 
     def test_exr_prores_skips_color(self):
         # ProRes to intermediate montażowy — OETF sRGB byłby szkodliwy.

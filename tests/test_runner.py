@@ -4,6 +4,7 @@ Używa realnego ffmpeg (generuje mały plik przez lavfi) plus mocków dla
 ścieżek błędów. Uruchomienie z repo: python3 -m unittest discover -s tests -v
 """
 import logging
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -196,6 +197,54 @@ class TestLogFile(unittest.TestCase):
         p = logs_dir()
         self.assertEqual(p.name, "logs")
         self.assertEqual(p.parent.name, "ffmpeg_convert")
+
+
+def _rgb_at_center(path: Path, matrix: str) -> tuple:
+    """Kolor środkowego piksela po zdekodowaniu wskazaną macierzą (jak odtwarzacz)."""
+    out = subprocess.run(
+        [presets.FFMPEG, "-v", "error", "-i", str(path), "-frames:v", "1", "-vf",
+         f"scale=in_color_matrix={matrix}:in_range=tv:out_range=full"
+         ":flags=accurate_rnd+full_chroma_int,crop=2:2,format=rgb24",
+         "-f", "rawvideo", "-"], check=True, capture_output=True)
+    return tuple(out.stdout[:3])
+
+
+class TestColorMatrixRealFFmpeg(unittest.TestCase):
+    """Realny ffmpeg: kolor PNG ma przeżyć drogę PNG -> wideo -> PNG (macierz 709)."""
+    COLOR = (10, 98, 204)  # nasycony błękit — tu 601/709 różnią się najmocniej
+
+    def _close(self, got, tol=3):
+        for g, e in zip(got, self.COLOR):
+            self.assertLessEqual(abs(g - e), tol, f"{got} != {self.COLOR}")
+
+    def test_png_seq_to_mp4_and_prores_keeps_color(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            hexc = "0x%02X%02X%02X" % self.COLOR
+            for i in (1, 2):
+                subprocess.run([presets.FFMPEG, "-v", "error", "-f", "lavfi", "-i",
+                                f"color=c={hexc}:s=1280x720", "-frames:v", "1",
+                                str(d / f"f_{i}.png")], check=True)
+            for fmt, ext in (("h264", "mp4"), ("prores", "mov")):
+                with self.subTest(fmt=fmt):
+                    out = d / f"out.{ext}"
+                    job = presets.build_seq_job([str(d / "f_1.png"), str(d / "f_2.png")],
+                                                fps=25, fmt=fmt, out_path=out, auto_audio=False)
+                    runner.run_job(job)
+                    self._close(_rgb_at_center(out, "bt709"))
+
+    def test_untagged_hd_frames_export_keeps_color(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = d / "ai.mp4"  # jak klipy z generatorów AI: macierz 709, bez tagu
+            hexc = "0x%02X%02X%02X" % self.COLOR
+            subprocess.run([presets.FFMPEG, "-v", "error", "-f", "lavfi", "-i",
+                            f"color=c={hexc}:s=1280x720:d=0.2", "-vf",
+                            "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+                            "-c:v", "libx264", "-crf", "5", str(src)], check=True)
+            runner.run_job(presets.build_video_jobs("last_frame", [src])[0])
+            png = d / "ai_last.png"
+            self._close(_rgb_at_center(png, "bt709"))
 
 
 class TestRunnerLogging(unittest.TestCase):

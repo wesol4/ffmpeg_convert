@@ -193,13 +193,19 @@ def _h264_size_job(src: Path, base: str, batch: bool,
     )
 
 
+def _decode_vf(src: Path) -> list:
+    """-vf dla wyjścia do obrazów: nieotagowane YUV HD dekoduj macierzą 709 (jak odtwarzacze)."""
+    return ["-vf", "scale=in_color_matrix=bt709"] if probe.probe_untagged_hd_yuv(src) else []
+
+
 def _frames_job(src: Path, base: str, frames_format: str, with_wav: bool) -> Job:
     """Eksport klatek do podfolderu + opcjonalnie ścieżka audio WAV."""
     fmt = frames_format.lower()
     frames_dir = src.parent / f"{base}_FRAMES"
     pattern = frames_dir / f"{base}_%04d.{fmt}"
     # -fps_mode passthrough: zachowaj dokładnie tyle klatek, ile w źródle.
-    cmds = [[FFMPEG, "-y", "-i", str(src), "-fps_mode", "passthrough", str(pattern)]]
+    cmds = [[FFMPEG, "-y", "-i", str(src), "-fps_mode", "passthrough", *_decode_vf(src),
+             str(pattern)]]
     label = f"{src.name} → {frames_dir.name}/ (klatki {fmt.upper()}"
     if with_wav:
         wav_path = frames_dir / f"{base}.wav"
@@ -252,7 +258,8 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
             jobs.append(_h264_size_job(src, base, batch, size_mode, crf, target_mb, encoder))
         elif preset == VideoPreset.LAST_FRAME:
             out_path = src.parent / f"{base}_last.png"
-            cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), "-update", "1", str(out_path)]
+            cmd = [FFMPEG, "-y", "-sseof", "-1", "-i", str(src), *_decode_vf(src),
+                   "-update", "1", str(out_path)]
             jobs.append(Job(label=f"{src.name} → {out_path.name}", cmds=[cmd],
                             mkdir=src.parent, duration=probe.probe_duration(src)))
         elif preset == VideoPreset.AUDIO_SEPARATE:
