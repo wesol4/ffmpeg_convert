@@ -342,8 +342,9 @@ class SeqPanel(QWidget):
                 raise ValueError("Sekwencja zmieniła się na dysku. Dodaj klatkę ponownie.")
             sequence.require_complete()
             name = self.output_name.text().strip()
-            if not name or name in (".", "..") or any(c in name for c in '/\\\n\r'):
-                raise ValueError("Podaj samą nazwę filmu, bez ścieżki.")
+            if (not name or name in (".", "..") or name.endswith((".", " "))
+                    or any(c in name for c in '<>:"/\\|?*') or any(ord(c) < 32 for c in name)):
+                raise ValueError('Podaj samą nazwę filmu, bez ścieżki i znaków < > : " / \\ | ? *')
             folder = self.frames[0].parent
             if not options.pop("mp4_in_seq"):
                 folder = folder.parent

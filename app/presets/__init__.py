@@ -31,6 +31,9 @@ from app.presets.sequence import (
     build_thumbnail_cmd,
 )
 from app.presets.video import (
+    DNXHD_FIT,
+    HEVC_TAG,
+    MP4_FLAGS,
     SIMPLE_VIDEO,
     SPECIAL_VIDEO,
     VIDEO_PRESETS,
@@ -48,6 +51,7 @@ __all__ = [
     "SEQ_FORMATS", "SeqFormat", "_natural_key", "_resolve_proxy_variant", "_seq_stem",
     "build_flipbook_job", "build_proxy_cmd", "build_seq_job", "build_seq_jobs_from_folders",
     "build_thumbnail_cmd",
+    "DNXHD_FIT", "HEVC_TAG", "MP4_FLAGS",
     "SIMPLE_VIDEO", "SPECIAL_VIDEO", "VIDEO_PRESETS", "VideoPreset",
     "build_video_jobs",
 ]

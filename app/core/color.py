@@ -13,7 +13,6 @@ from app.core import probe
 
 
 def lut_path(user_lut: "Path | str | None" = None) -> Path:
-    """Ścieżka LUT-a 3D."""
     """Ścieżka LUT-a 3D: nadpisany (user) lub wbudowany app/luts/aces_ap0_to_srgb.cube."""
     if user_lut is not None:
         return Path(user_lut)
