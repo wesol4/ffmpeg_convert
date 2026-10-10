@@ -226,6 +226,17 @@ class TestSimpleVideo(unittest.TestCase):
             self.assertIn(codec, jobs[0].cmds[0])
 
 
+    def test_prores_nuke_recipe(self):
+        src = Path("/tmp/hf_clip.mp4")
+        cmd = self._job_cmd(presets.build_video_jobs("prores_nuke", [src]))
+        expected = [presets.FFMPEG, "-y", "-i", str(src),
+                    "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
+                    "-color_primaries", "bt709", "-color_trc", "bt709",
+                    "-colorspace", "bt709", "-c:a", "pcm_s24le", "-ar", "48000",
+                    str(src.parent / "hf_clip_NUKE.mov")]
+        self.assertEqual(cmd, expected)
+
+
 class TestH264Size(unittest.TestCase):
     def test_crf_mode(self):
         src = Path("/tmp/v.mov")

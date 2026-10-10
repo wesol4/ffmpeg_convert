@@ -194,6 +194,7 @@ python3 app/cli.py video --preset h264 --encoder nvenc plik.mov
 - **DNxHD 1080p (120 Mb/s)** — edycja, format Avid.
 - **DNxHR HQ** — edycja, format Avid (dowolna rozdzielczość).
 - **ProRes 422 HQ** — edycja, format Apple.
+- **ProRes HQ → Nuke** — ProRes 422 HQ 10-bit, tagi kolorów bt709, dźwięk PCM 24-bit/48 kHz; wynik `<nazwa>_NUKE.mov`.
 - **Cineform Q4 (10-bit)** — edycja, format GoPro.
 - **Ostatnia klatka PNG** — wyciągnięcie ostatniej klatki.
 - **Eksport klatek (+ WAV)** — sekwencja klatek (PNG/JPG/EXR)

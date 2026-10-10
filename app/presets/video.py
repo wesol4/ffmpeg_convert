@@ -67,6 +67,7 @@ class VideoPreset(StrEnum):
     DNXHD = "dnxhd"
     DNXHR = "dnxhr"
     PRORES = "prores"
+    PRORES_NUKE = "prores_nuke"
     CINEFORM = "cineform"
     LAST_FRAME = "last_frame"
     FRAMES = "frames"
@@ -102,6 +103,12 @@ SIMPLE_VIDEO: dict[VideoPreset, _SimpleSpec] = {
         args=["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
               "-c:a", "pcm_s16le"],
     ),
+    VideoPreset.PRORES_NUKE: dict(
+        label="ProRes HQ → Nuke (bt709, PCM 24-bit/48 kHz)", suffix="NUKE", ext="mov",
+        args=["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le",
+              "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+              "-c:a", "pcm_s24le", "-ar", "48000"],
+    ),
     VideoPreset.CINEFORM: dict(
         label="Cineform Q4 (10-bit)", suffix="CF", ext="mov",
         args=["-c:v", "cfhd", "-quality", "4", "-pix_fmt", "yuv422p10le",
@@ -127,6 +134,7 @@ VIDEO_PRESETS = [
     (VideoPreset.DNXHD, SIMPLE_VIDEO[VideoPreset.DNXHD]["label"]),
     (VideoPreset.DNXHR, SIMPLE_VIDEO[VideoPreset.DNXHR]["label"]),
     (VideoPreset.PRORES, SIMPLE_VIDEO[VideoPreset.PRORES]["label"]),
+    (VideoPreset.PRORES_NUKE, SIMPLE_VIDEO[VideoPreset.PRORES_NUKE]["label"]),
     (VideoPreset.CINEFORM, SIMPLE_VIDEO[VideoPreset.CINEFORM]["label"]),
     (VideoPreset.LAST_FRAME, SPECIAL_VIDEO[VideoPreset.LAST_FRAME]),
     (VideoPreset.FRAMES, SPECIAL_VIDEO[VideoPreset.FRAMES]),
@@ -278,7 +286,7 @@ def build_video_jobs(preset: "VideoPreset | str", files: list, *, size_mode: str
                 label=f"{src.name} → {out_path.relative_to(src.parent)}{enc_tag}",
                 cmds=[cmd], mkdir=out_dir, duration=probe.probe_duration(src),
             ))
-        elif preset in SIMPLE_VIDEO:  # dnxhd/dnxhr/prores/cineform — CPU-only
+        elif preset in SIMPLE_VIDEO:  # dnxhd/dnxhr/prores/prores_nuke/cineform — CPU-only
             spec = SIMPLE_VIDEO[preset]
             out_dir = _out_dir(src, spec["suffix"], batch)
             out_path = out_dir / f"{base}_{spec['suffix']}.{spec['ext']}"
