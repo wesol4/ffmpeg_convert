@@ -9,6 +9,7 @@ Windows) i jako moduł (python -m app.gui) — bootstrap dodaje rodzica app/.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -25,11 +26,23 @@ from app.gui_panels import ImagePanel, VideoPanel  # noqa: E402
 from app.gui_style import APP_STYLE, ICON  # noqa: E402
 from app.gui_widgets import DropList  # noqa: E402
 from app.gui_workers import ConvertWorker  # noqa: E402
+from PyQt5.QtGui import QIcon  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 # Re-eksport dla zgodności wstecz (from app import gui; gui.MainWindow()).
 __all__ = ["main", "MainWindow", "ImagePanel", "VideoPanel", "DropList",
            "ConvertWorker", "APP_STYLE", "ICON"]
+
+# Ten sam identyfikator ustawia instalator na skrócie w menu Start (win/setup.py).
+APP_USER_MODEL_ID = "wesol4.FFmpegConvert"
+APP_ICON = Path(__file__).resolve().with_name("icon.ico")
+
+
+def _set_windows_app_id() -> None:
+    # Bez własnego ID pasek zadań grupuje okno z pythonw.exe (ikona i nazwa Pythona/IDLE).
+    if os.name == "nt":
+        import ctypes
+        getattr(ctypes, "windll").shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
 
 def main(files=None) -> int:
@@ -47,7 +60,9 @@ def main(files=None) -> int:
               file=sys.stderr)
         return 1
     log.info("GUI start, files=%d", len(files or []))
+    _set_windows_app_id()
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(APP_ICON)))
     app.setStyleSheet(APP_STYLE)
     win = MainWindow()
     if files:
