@@ -16,6 +16,8 @@ REPO = Path(__file__).resolve().parents[1]
 INSTALL = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "FFmpegConvert"
 EXTENSIONS = ("mp4", "mov", "mkv", "avi", "webm", "m4v", "png", "jpg", "jpeg", "exr", "tif", "tiff", "webp")
 REG_BASE = r"Software\Classes"
+# Read by the optional Windows 11 packaged menu (win/modern_menu) to start the GUI.
+PACKAGED_MENU_KEY = r"Software\FFmpegConvert"
 
 
 def run(args, **kwargs):
@@ -138,6 +140,19 @@ def register_menu():
             pass
 
 
+def update_packaged_menu():
+    """Point an already installed packaged menu at this install, not an old scripts\\app copy."""
+    import winreg
+    try:
+        handle = winreg.OpenKey(winreg.HKEY_CURRENT_USER, PACKAGED_MENU_KEY, 0, winreg.KEY_SET_VALUE)
+    except FileNotFoundError:
+        return False
+    with handle:
+        winreg.SetValueEx(handle, "PythonwPath", 0, winreg.REG_SZ, str(python_path(True)))
+        winreg.SetValueEx(handle, "GuiPath", 0, winreg.REG_SZ, str(INSTALL / "app/launch.py"))
+    return True
+
+
 def delete_menu_key(key):
     import winreg
     for suffix in (r"\command", ""):
@@ -172,6 +187,8 @@ def install():
     copy_app(REPO / "app", INSTALL / "app")
     (INSTALL / "windows-tools.json").write_text(json.dumps(tools, indent=2), encoding="utf-8")
     register_menu()
+    if update_packaged_menu():
+        print("Zaktualizowano menu Windows 11 (pakiet FFmpeg Convert).", flush=True)
     create_shortcut()
     print(f"Gotowe. Aplikacja: {INSTALL}\nUruchom FFmpeg Convert z menu Start.")
     print("Windows 11: wpis menu pliku/folderu moze byc pod 'Pokaz wiecej opcji'.")

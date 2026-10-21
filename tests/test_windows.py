@@ -147,6 +147,29 @@ class WindowsPortabilityTests(unittest.TestCase):
                 remove_tree(base)
 
     @unittest.skipUnless(os.name == "nt", "real Windows needed")
+    def test_packaged_menu_is_repointed_only_when_installed(self):
+        import winreg
+        import uuid
+        key = rf"Software\FFmpegConvertTests\{uuid.uuid4()}"
+        with patch.object(setup, "PACKAGED_MENU_KEY", key):
+            self.assertFalse(setup.update_packaged_menu())
+            with self.assertRaises(FileNotFoundError):
+                winreg.OpenKey(winreg.HKEY_CURRENT_USER, key).Close()
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                winreg.SetValueEx(handle, "GuiPath", 0, winreg.REG_SZ, r"C:\Users\x\scripts\app\gui.py")
+            try:
+                self.assertTrue(setup.update_packaged_menu())
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                    self.assertEqual(winreg.QueryValueEx(handle, "GuiPath")[0], str(setup.INSTALL / "app/launch.py"))
+                    self.assertEqual(winreg.QueryValueEx(handle, "PythonwPath")[0], str(setup.python_path(True)))
+            finally:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\FFmpegConvertTests")
+                except OSError:
+                    pass
+
+    @unittest.skipUnless(os.name == "nt", "real Windows needed")
     def test_pythonw_entry_point_and_gui_import(self):
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         with tempfile.TemporaryDirectory() as temp:
