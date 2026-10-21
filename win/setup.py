@@ -14,6 +14,7 @@ import venv
 
 REPO = Path(__file__).resolve().parents[1]
 INSTALL = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "FFmpegConvert"
+APP_USER_MODEL_ID = "wesol4.FFmpegConvert"  # same as app/gui.py, groups the taskbar button
 EXTENSIONS = ("mp4", "mov", "mkv", "avi", "webm", "m4v", "png", "jpg", "jpeg", "exr", "tif", "tiff", "webp")
 REG_BASE = r"Software\Classes"
 # Read by the optional Windows 11 packaged menu (win/modern_menu) to start the GUI.
@@ -106,6 +107,10 @@ def copy_app(source, destination):
             shutil.rmtree(temp, ignore_errors=True)
 
 
+def app_icon():
+    return INSTALL / "app/icon.ico"
+
+
 def menu_command():
     # Explorer substitutes %1; always quote it, even for selections without spaces.
     return f'"{python_path(True)}" "{INSTALL / "app/launch.py"}" "%1"'
@@ -121,7 +126,7 @@ def register_menu():
     for key in menu_keys():
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as handle:
             winreg.SetValueEx(handle, "MUIVerb", 0, winreg.REG_SZ, "FFmpeg Convert...")
-            winreg.SetValueEx(handle, "Icon", 0, winreg.REG_SZ, f'"{python_path(True)}",0')
+            winreg.SetValueEx(handle, "Icon", 0, winreg.REG_SZ, f'"{app_icon()}",0')
             winreg.SetValueEx(handle, "MultiSelectModel", 0, winreg.REG_SZ, "Single")
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key + r"\command") as handle:
             winreg.SetValueEx(handle, "", 0, winreg.REG_SZ, menu_command())
@@ -165,14 +170,69 @@ def delete_menu_key(key):
 def create_shortcut():
     shortcut = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/FFmpeg Convert.lnk"
     env = {**os.environ, "FFCONVERT_LINK": str(shortcut), "FFCONVERT_PYTHON": str(python_path(True)),
-           "FFCONVERT_LAUNCH": str(INSTALL / "app/launch.py"), "FFCONVERT_ROOT": str(INSTALL)}
+           "FFCONVERT_LAUNCH": str(INSTALL / "app/launch.py"), "FFCONVERT_ROOT": str(INSTALL),
+           "FFCONVERT_ICON": str(app_icon()), "FFCONVERT_APPID": APP_USER_MODEL_ID}
     # Paths are environment data, never interpolated as PowerShell source.
     script = ("$ErrorActionPreference='Stop'; "
               "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:FFCONVERT_LINK); "
               "$s.TargetPath=$env:FFCONVERT_PYTHON; "
               "$s.Arguments='\"'+$env:FFCONVERT_LAUNCH+'\"'; "
-              "$s.WorkingDirectory=$env:FFCONVERT_ROOT; $s.Save()")
+              "$s.IconLocation=$env:FFCONVERT_ICON+',0'; "
+              "$s.WorkingDirectory=$env:FFCONVERT_ROOT; $s.Save(); "
+              "Add-Type -TypeDefinition $env:FFCONVERT_APPID_CS; "
+              "[FFmpegConvertShortcut]::SetAppId($env:FFCONVERT_LINK, $env:FFCONVERT_APPID)")
+    env["FFCONVERT_APPID_CS"] = SHORTCUT_APP_ID_CS
     run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], env=env)
+
+
+# Writes System.AppUserModel.ID on a .lnk, so a pinned taskbar button relaunches the app.
+SHORTCUT_APP_ID_CS = r"""
+using System;
+using System.Runtime.InteropServices;
+public static class FFmpegConvertShortcut {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    struct PropertyKey { public Guid Fmtid; public uint Pid; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PropVariant { public ushort Vt; ushort r1, r2, r3; public IntPtr Value; IntPtr Extra; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore {
+        void GetCount(out uint count);
+        void GetAt(uint index, out PropertyKey key);
+        void GetValue(ref PropertyKey key, out PropVariant value);
+        void SetValue(ref PropertyKey key, ref PropVariant value);
+        void Commit();
+    }
+    [ComImport, Guid("0000010b-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPersistFile {
+        void GetClassID(out Guid id);
+        [PreserveSig] int IsDirty();
+        void Load([MarshalAs(UnmanagedType.LPWStr)] string path, uint mode);
+        void Save([MarshalAs(UnmanagedType.LPWStr)] string path, bool remember);
+        void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string path);
+        void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string path);
+    }
+    public static void SetAppId(string link, string appId) {
+        Guid shellLinkClass = new Guid("00021401-0000-0000-C000-000000000046");
+        object shellLink = Activator.CreateInstance(Type.GetTypeFromCLSID(shellLinkClass));
+        try {
+            IPersistFile file = (IPersistFile)shellLink;
+            file.Load(link, 2);
+            PropertyKey key = new PropertyKey { Fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), Pid = 5 };
+            PropVariant value = new PropVariant { Vt = 31, Value = Marshal.StringToCoTaskMemUni(appId) };
+            try {
+                IPropertyStore store = (IPropertyStore)shellLink;
+                store.SetValue(ref key, ref value);
+                store.Commit();
+            } finally {
+                Marshal.FreeCoTaskMem(value.Value);
+            }
+            file.Save(link, true);
+        } finally {
+            Marshal.ReleaseComObject(shellLink);
+        }
+    }
+}
+"""
 
 
 def install():

@@ -73,6 +73,13 @@ class WindowsPortabilityTests(unittest.TestCase):
             self.assertIn('pythonw.exe" "', command)
             self.assertNotIn("cmd /c", command)
 
+    def test_shortcut_and_gui_share_icon_and_taskbar_id(self):
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        self.assertTrue((app_dir / "icon.ico").read_bytes().startswith(b"\x00\x00\x01\x00"))
+        self.assertEqual(setup.app_icon().relative_to(setup.INSTALL), Path("app/icon.ico"))
+        gui_source = (app_dir / "gui.py").read_text(encoding="utf-8")
+        self.assertIn(f'APP_USER_MODEL_ID = "{setup.APP_USER_MODEL_ID}"', gui_source)
+
     def test_menu_covers_exr_and_directories(self):
         self.assertTrue(any(r"\.exr\shell" in key for key in setup.menu_keys()))
         self.assertTrue(any(r"\Directory\shell" in key for key in setup.menu_keys()))
