@@ -1,5 +1,9 @@
 # Decyzje do podjęcia przed etapem 2
 
+> **Status: wszystkie rekomendacje zaakceptowane (2026-11-03).** Punkty `[? Dx]` w `spec.md`
+> obowiązują w wariancie rekomendowanym. Gałąź robocza pozostaje `claude/new-session-hw35j9`
+> (bez zgody na `rewrite/v2`). Otwarte pytanie z D4 rozstrzygnięte: bez `extra_args` w v2.0.
+
 D1–D6 to decyzje z promptu. D7–D14 wynikły z audytu (`audit.md`) i blokują część punktów
 `spec.md` oznaczonych `[? Dx]`. Przy każdej: opcje, koszty i rekomendacja.
 

@@ -1,50 +1,48 @@
 # FFmpeg Convert
 
-Desktop media utility: Python 3.12, PyQt5, FFmpeg/ffprobe. UI text is Polish.
-Preserve the existing compact desktop layout; do not replace it with a web UI.
+Desktopowe narzędzie do konwersji wideo, kompresji obrazów, sekwencji klatek, splitu/flipbooka i
+lokalnej separacji audio. Python 3.12, Qt (PyQt5; od etapu 3 PySide6), FFmpeg/ffprobe. GUI, CLI,
+menu kontekstowe Nemo i Windows. Teksty UI po polsku. Kompaktowy układ desktopowy, bez web UI.
 
-## Architecture
+Trwa przepisanie v2: kontrakt `docs/rewrite/spec.md`, decyzje `docs/rewrite/decisions.md`
+(wszystkie rekomendacje zaakceptowane), błędy `docs/rewrite/audit.md`. Procedury: `.claude/skills/`.
 
-- `app/core/sequences.py`: read-only discovery of frame sequences and matching audio.
-- `app/presets/`: shared conversion recipes for GUI and CLI; return `Job` objects.
-- `app/runner.py`: execute argument arrays, report progress, clean temporary resources.
-- `app/gui_panels.py`, `app/gui_main_window.py`: user choices and presentation.
-- `app/audio_separation.py`: optional isolated CPU model; never upload user media.
+## Mapa architektury (v0.7; w v2 → `src/ffmpeg_convert/`, D5)
 
-## Working on conversion scenarios
+| miejsce | rola |
+|---|---|
+| `app/core/` | `jobs` (model `Job`), `ffmpeg` (narzędzia, typy plików, enkodery), `probe`, `sequences` (wykrywanie klatek i audio, tylko odczyt), `color` (EXR → display), `process` |
+| `app/presets/` | receptury wspólne dla GUI i CLI: `video`, `image`, `sequence`; zwracają `Job` |
+| `app/config.py` | `CONFIG`: wartości receptur |
+| `app/runner.py` | wykonanie list argumentów, postęp, sprzątanie |
+| `app/cli.py` | CLI: `video`, `image`, `seq`, `split`, `flipbook`, `gui`, `audio-setup`, `update` |
+| `app/gui*.py`, `app/launch.py` | GUI (okno, panele, workery, styl), start z menu Windows |
+| `app/audio_separation.py` | opcjonalny izolowany model CPU |
+| `linux/`, `win/` | akcje Nemo i `install.sh`; instalator Windows |
+| `scripts/verify_output.py` | weryfikacja wyniku przez ffprobe i fixture'y z lavfi |
 
-Keep GUI and CLI behavior consistent. Test actual FFmpeg output, not only command
-strings, when changing stream selection, frame count, duration or codecs.
+## Twarde zasady (bezpieczeństwo i dane)
 
-For numbered frames, detect only the selected sequence in its immediate folder.
-Show the count/range before switching from image conversion to video. Do not
-silently mix sequences or close gaps. Keep single-image conversion available.
-Audio is explicit or matched by sequence/folder name. Ambiguity requires choosing
-a file. Pad shorter audio with silence and trim longer audio to the video duration.
-Never use the output file as an input or silently replace an existing sequence video.
+- Procesy tylko jako listy argumentów, bez shella.
+- Nazwy w listach concat escapowane; nazwa z newline odrzucana. `%` w nazwach nie może trafić
+  do wzorca `image2` bez escapowania.
+- Nazwy plików w Qt wyłącznie jako zwykły tekst.
+- Suma kontrolna modelu sprawdzana przed deserializacją; media użytkownika nigdy nie są wysyłane.
+- Wynik nigdy nie jest wejściem; brak cichego nadpisywania; brak częściowych wyników po błędzie.
+- Nie mieszaj sekwencji i nie zamykaj dziur; audio jawne albo dopasowane po nazwie.
+- Sprzątaj wyłącznie zasoby tymczasowe utworzone przez bieżące zadanie.
+- Nie commituj mediów, modeli, runtime'u (`.audio-runtime/`) ani `venv/`.
+- GUI i CLI zachowują się tak samo; logika konwersji tylko w rdzeniu.
 
-Use subprocess argument lists without a shell. Escape filenames in FFmpeg concat
-lists; reject newlines. Treat filenames as plain text in Qt labels. Verify the
-fixed model checksum before deserialization. Clean only temporary paths created
-by the current job. Do not commit model/runtime files or user media.
-
-## Validation
+## Walidacja
 
 ```sh
 venv/bin/ruff check .
 venv/bin/mypy app
-venv/bin/python -m pytest -q
+QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q
 QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -p test_gui_sequences.py -v
 ```
 
-The last command needs PyQt5 in the chosen interpreter. Review the window at a
-normal desktop size after layout changes. Keep controls keyboard-accessible and
-put sequence count, duration, audio selection and action near each other.
-
-## Guidance used
-
-This project guidance applies the relevant parts of Anthropic's
-[claude-code-setup](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-code-setup),
-[frontend-design](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/frontend-design)
-and [security-guidance](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance).
-It does not install or enable Claude hooks, external reviewers or paid API calls.
+Testy GUI wymagają biblioteki Qt w wybranym interpreterze (PySide6 na Linuksie także `libegl1`).
+Zmiany strumieni, klatek, długości, kodeków i koloru sprawdzaj na realnym pliku
+(`scripts/verify_output.py`, skill `ffmpeg-verify`).
