@@ -73,6 +73,13 @@ class WindowsPortabilityTests(unittest.TestCase):
             self.assertIn('pythonw.exe" "', command)
             self.assertNotIn("cmd /c", command)
 
+    def test_shortcut_and_gui_share_icon_and_taskbar_id(self):
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        self.assertTrue((app_dir / "icon.ico").read_bytes().startswith(b"\x00\x00\x01\x00"))
+        self.assertEqual(setup.app_icon().relative_to(setup.INSTALL), Path("app/icon.ico"))
+        gui_source = (app_dir / "gui.py").read_text(encoding="utf-8")
+        self.assertIn(f'APP_USER_MODEL_ID = "{setup.APP_USER_MODEL_ID}"', gui_source)
+
     def test_menu_covers_exr_and_directories(self):
         self.assertTrue(any(r"\.exr\shell" in key for key in setup.menu_keys()))
         self.assertTrue(any(r"\Directory\shell" in key for key in setup.menu_keys()))
@@ -145,6 +152,29 @@ class WindowsPortabilityTests(unittest.TestCase):
                     except FileNotFoundError:
                         pass
                 remove_tree(base)
+
+    @unittest.skipUnless(os.name == "nt", "real Windows needed")
+    def test_packaged_menu_is_repointed_only_when_installed(self):
+        import winreg
+        import uuid
+        key = rf"Software\FFmpegConvertTests\{uuid.uuid4()}"
+        with patch.object(setup, "PACKAGED_MENU_KEY", key):
+            self.assertFalse(setup.update_packaged_menu())
+            with self.assertRaises(FileNotFoundError):
+                winreg.OpenKey(winreg.HKEY_CURRENT_USER, key).Close()
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                winreg.SetValueEx(handle, "GuiPath", 0, winreg.REG_SZ, r"C:\Users\x\scripts\app\gui.py")
+            try:
+                self.assertTrue(setup.update_packaged_menu())
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                    self.assertEqual(winreg.QueryValueEx(handle, "GuiPath")[0], str(setup.INSTALL / "app/launch.py"))
+                    self.assertEqual(winreg.QueryValueEx(handle, "PythonwPath")[0], str(setup.python_path(True)))
+            finally:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\FFmpegConvertTests")
+                except OSError:
+                    pass
 
     @unittest.skipUnless(os.name == "nt", "real Windows needed")
     def test_pythonw_entry_point_and_gui_import(self):
