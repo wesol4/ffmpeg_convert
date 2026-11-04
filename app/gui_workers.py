@@ -18,12 +18,18 @@ class ConvertWorker(QThread):
     def __init__(self, jobs):
         super().__init__()
         self.jobs = jobs
+        self.cancel_token = runner.CancelToken()
+
+    def cancel(self):
+        """Przerwij bieżący job (niedokończony plik zostanie usunięty) i nie startuj kolejnych."""
+        self.cancel_token.cancel()
 
     def run(self):
         ok = runner.run_jobs(
             self.jobs,
             on_log=self.log.emit,
             on_percent=lambda frac: self.percent.emit(frac),
+            cancel=self.cancel_token,
         )
         self.done.emit(ok, len(self.jobs))
 

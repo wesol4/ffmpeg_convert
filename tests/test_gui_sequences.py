@@ -8,7 +8,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
-    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtWidgets import QApplication, QMessageBox
     from app.gui_main_window import MainWindow
 except ImportError:
     QApplication = None
@@ -71,9 +71,19 @@ class GuiSequenceTests(unittest.TestCase):
         worker = mock.Mock()
         worker.isRunning.return_value = True
         self.window.worker = worker
-        event = mock.Mock()
-        self.window.closeEvent(event)
+        question = "app.gui_main_window.QMessageBox.question"
+        # „Nie”: okno zostaje, konwersja trwa.
+        with mock.patch(question, return_value=QMessageBox.No):
+            event = mock.Mock()
+            self.window.closeEvent(event)
         event.ignore.assert_called_once()
+        worker.cancel.assert_not_called()
+        # „Tak”: konwersja jest przerywana, okno zamknie się po jej zakończeniu.
+        with mock.patch(question, return_value=QMessageBox.Yes):
+            event = mock.Mock()
+            self.window.closeEvent(event)
+        event.ignore.assert_called_once()
+        worker.cancel.assert_called_once()
         self.window.clear_files()
         self.assertEqual(self.window.files, [self.frames[0]])
         self.window.worker = None

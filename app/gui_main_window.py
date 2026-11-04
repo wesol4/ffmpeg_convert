@@ -136,10 +136,15 @@ class MainWindow(QWidget):
         self.convert_btn.setObjectName("Primary")
         self.convert_btn.setEnabled(False)
         self.convert_btn.clicked.connect(self.start_conversion)
+        self.cancel_btn = QPushButton("Anuluj")
+        self.cancel_btn.setToolTip("Przerwij konwersję; niedokończony plik zostanie usunięty")
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self.cancel_conversion)
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setTextVisible(False)
         action_row.addWidget(self.convert_btn)
+        action_row.addWidget(self.cancel_btn)
         action_row.addWidget(self.progress, 1)
         layout.addLayout(action_row)
 
@@ -316,19 +321,35 @@ class MainWindow(QWidget):
         self.worker.log.connect(self.log.appendPlainText)
         self.worker.percent.connect(lambda frac: self.progress.setValue(int(frac * 100)))
         self.worker.done.connect(self._on_done)
+        self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setVisible(True)
         self.worker.start()
 
+    def cancel_conversion(self):
+        if self.worker is not None and self.worker.isRunning():
+            self.cancel_btn.setEnabled(False)
+            self.log.appendPlainText("Przerywam konwersję…")
+            self.worker.cancel()
+
     def _on_done(self, ok, total):
+        self.cancel_btn.setVisible(False)
         self.stack.setEnabled(True)
         self.sequence_btn.setEnabled(True)
         self.convert_btn.setEnabled(True)
         self.progress.setValue(100)
-        self.log.appendPlainText(f"=== Ukończono poprawnie: {ok}/{total} ===")
+        cancelled = self.worker is not None and getattr(self.worker, "cancel_token", None) is not None \
+            and self.worker.cancel_token.cancelled
+        prefix = "Przerwano — ukończono" if cancelled else "Ukończono poprawnie:"
+        self.log.appendPlainText(f"=== {prefix} {ok}/{total} ===")
 
     def closeEvent(self, event):
         if self.worker is not None and self.worker.isRunning():
-            self.log.appendPlainText("Konwersja trwa. Zamknij okno po jej zakończeniu.")
-            event.ignore()
+            answer = QMessageBox.question(
+                self, "Konwersja trwa",
+                "Przerwać konwersję? Niedokończony plik zostanie usunięty.")
+            if answer == QMessageBox.Yes:
+                self.cancel_conversion()
+            event.ignore()  # okno zamkniesz po zakończeniu/przerwaniu
             return
         if self._update_checker is not None and self._update_checker.isRunning():
             event.ignore()

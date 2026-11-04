@@ -21,7 +21,7 @@ from app.core.ffmpeg import FFMPEG, Encoder, kind_of
 from app.core.jobs import Job
 from app.core.sequences import detect_sequence, frame_identity, matching_audio
 from app.presets.image import _scale_filter
-from app.presets.video import VideoPreset, _encoder_codec_vargs
+from app.presets.video import DNXHD_FIT, HEVC_TAG, MP4_FLAGS, VideoPreset, _encoder_codec_vargs
 
 
 class _SeqSpec(TypedDict):
@@ -43,13 +43,14 @@ SEQ_FORMATS: dict[SeqFormat, _SeqSpec] = {
                          vargs=["-c:v", "libx264", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p"],
                          aargs=["-c:a", "aac", "-b:a", "192k"]),
     SeqFormat.H265: dict(label="MP4 H.265", ext="mp4",
-                         vargs=["-c:v", "libx265", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p"],
+                         vargs=["-c:v", "libx265", "-crf", "23", "-preset", "medium", "-pix_fmt", "yuv420p",
+                                *HEVC_TAG],
                          aargs=["-c:a", "aac", "-b:a", "192k"]),
     SeqFormat.PRORES: dict(label="ProRes 422 HQ", ext="mov",
                            vargs=["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"],
                            aargs=["-c:a", "pcm_s16le"]),
     SeqFormat.DNXHD: dict(label="DNxHD 1080p", ext="mov",
-                          vargs=["-vf", "scale=1920:1080", "-c:v", "dnxhd", "-b:v", "120M", "-pix_fmt", "yuv422p"],
+                          vargs=["-vf", DNXHD_FIT, "-c:v", "dnxhd", "-b:v", "120M", "-pix_fmt", "yuv422p"],
                           aargs=["-c:a", "pcm_s16le"]),
 }
 
@@ -72,12 +73,12 @@ def _vf_and_pix(vargs: list) -> tuple:
 def _rgb_to_yuv709_vf(vargs: list) -> str:
     """RGB (sRGB) -> YUV macierzą 709, zakres TV, w docelowym pix_fmt formatu.
 
-    Filtr formatu (np. scale=1920:1080 dla DNxHD) jest doklejany do tego samego
-    scale — dwie opcje -vf nadpisałyby się (ffmpeg bierze ostatnią).
+    Filtr formatu (np. dopasowanie DNxHD do 1920x1080) idzie w tym samym łańcuchu -vf
+    przed konwersją — dwie opcje -vf nadpisałyby się (ffmpeg bierze ostatnią).
     """
     vf, pix, _ = _vf_and_pix(vargs)
-    size = vf.split("=", 1)[1] + ":" if vf and vf.startswith("scale=") else ""
-    return f"scale={size}out_color_matrix=bt709:out_range=tv,format={pix}"
+    pre = f"{vf}," if vf else ""
+    return f"{pre}scale=out_color_matrix=bt709:out_range=tv,format={pix}"
 
 
 def _natural_key(s: str) -> list:
@@ -181,6 +182,7 @@ def build_seq_job(files: list, *, fps: float = 24, fmt: "SeqFormat | str" = "h26
         audio = candidates[0] if candidates else None
     seq_ext = paths[0].suffix.lstrip(".")
     duration = len(paths) / fps if fps else None
+    mux = MP4_FLAGS if spec["ext"] == "mp4" else []
 
     # Konwersja koloru EXR (linear) → display tylko dla formatów dystrybucyjnych.
     # prores/dnxhd to intermediaty montażowe — tam OETF byłby szkodliwy.
@@ -239,20 +241,20 @@ def build_seq_job(files: list, *, fps: float = 24, fmt: "SeqFormat | str" = "h26
                     vpreset = VideoPreset.H264 if fmt == SeqFormat.H264 else VideoPreset.H265
                     quality = crf if fmt == SeqFormat.H264 else CONFIG.h265.crf
                     codec, vargs = _encoder_codec_vargs(vpreset, encoder, quality)
-                    cmd += ["-c:v", codec, *vargs, *color_tags, str(mp4_out)]
+                    cmd += ["-c:v", codec, *vargs, *color_tags, *mux, str(mp4_out)]
                     enc_tag = f" [{encoder.value.upper()}]"
                 else:
                     if fmt == SeqFormat.H264:
-                        # size_mode == "crf" pozwala wybrać własny CRF;
-                        # domyślnie używamy klasycznego CRF 18 z CONFIG.h264.
+                        # size_mode == "crf": CRF z panelu/CLI (domyślnie
+                        # CONFIG.h264size.crf_default = 23, nie 18 jak preset wideo).
                         vargs = ["-crf", str(crf), "-preset", CONFIG.h264.preset,
                                  "-pix_fmt", CONFIG.h264.pix_fmt]
-                        cmd += ["-c:v", "libx264", *vargs, *color_tags, str(mp4_out)]
+                        cmd += ["-c:v", "libx264", *vargs, *color_tags, *mux, str(mp4_out)]
                         enc_tag = ""
                     else:
                         # color_vf zawiera już filtr formatu (np. scale DNxHD) — bez drugiego -vf.
                         vargs = _vf_and_pix(spec["vargs"])[2] if color_vf else spec["vargs"]
-                        cmd += [*vargs, *color_tags, str(mp4_out)]
+                        cmd += [*vargs, *color_tags, *mux, str(mp4_out)]
                         enc_tag = ""
                 cmds.append(cmd)
                 label += f" → {mp4_out.name}{enc_tag}{color_tag}"
@@ -276,7 +278,7 @@ def build_seq_job(files: list, *, fps: float = 24, fmt: "SeqFormat | str" = "h26
             label += f" + proxy {v.subdir}/{name}.{proxy_start_frame}+.{v.ext}"
 
         return Job(label=label, cmds=cmds, mkdir=out_dir, cleanup=[tmp],
-                   duration=duration)
+                   duration=duration, outputs=[mp4_out] if make_mp4 else [])
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -304,7 +306,7 @@ def _h264_size_seq_job(tmp_pattern: str, mp4_out: Path, fps: float, frame_count:
             cmd += ["-vf", color_vf]
         cmd += ["-c:v", "libx264", "-crf", str(CONFIG.h264size.crf_default),
                 "-preset", CONFIG.h264.preset, "-pix_fmt", CONFIG.h264.pix_fmt,
-                *color_tags, str(mp4_out)]
+                *color_tags, *MP4_FLAGS, str(mp4_out)]
         return Job(label=f"{mp4_out.name} (brak fps — CRF fallback)", cmds=[cmd],
                    mkdir=out_dir, cleanup=cleanup)
 
@@ -333,7 +335,7 @@ def _h264_size_seq_job(tmp_pattern: str, mp4_out: Path, fps: float, frame_count:
                   "-af", "apad", "-t", f"{duration:.9f}"]
     else:
         pass2.append("-an")
-    pass2 += [*color_tags, str(mp4_out)]
+    pass2 += [*color_tags, *MP4_FLAGS, str(mp4_out)]
 
     return Job(
         label=f"{mp4_out.name} (~{target_mb:g} MB, {video_k}k wideo, CPU 2-pass)",
