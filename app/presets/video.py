@@ -83,6 +83,7 @@ class VideoPreset(StrEnum):
     H265 = "h265"
     DNXHD = "dnxhd"
     DNXHR = "dnxhr"
+    DNXHR_SQ_24 = "dnxhr_sq_24"
     PRORES = "prores"
     PRORES_NUKE = "prores_nuke"
     CINEFORM = "cineform"
@@ -114,6 +115,12 @@ SIMPLE_VIDEO: dict[VideoPreset, _SimpleSpec] = {
         label="DNxHR HQ", suffix="DNxHR", ext="mov",
         args=["-c:v", "dnxhd", "-profile:v", "dnxhr_hq", "-pix_fmt", "yuv422p10le",
               "-c:a", "pcm_s16le"],
+    ),
+    VideoPreset.DNXHR_SQ_24: dict(
+        label="MOV · DNxHR SQ · 8-bit 4:2:2 · 24 fps · PCM 16-bit/48 kHz",
+        suffix="DNxHR_SQ_24", ext="mov",
+        args=["-c:v", "dnxhd", "-profile:v", "dnxhr_sq", "-pix_fmt", "yuv422p",
+              "-vf", "fps=24", "-fps_mode", "cfr", "-c:a", "pcm_s16le", "-ar", "48000"],
     ),
     VideoPreset.PRORES: dict(
         label="ProRes 422 HQ", suffix="PR", ext="mov",
@@ -150,6 +157,7 @@ VIDEO_PRESETS = [
     (VideoPreset.H265, SIMPLE_VIDEO[VideoPreset.H265]["label"]),
     (VideoPreset.DNXHD, SIMPLE_VIDEO[VideoPreset.DNXHD]["label"]),
     (VideoPreset.DNXHR, SIMPLE_VIDEO[VideoPreset.DNXHR]["label"]),
+    (VideoPreset.DNXHR_SQ_24, SIMPLE_VIDEO[VideoPreset.DNXHR_SQ_24]["label"]),
     (VideoPreset.PRORES, SIMPLE_VIDEO[VideoPreset.PRORES]["label"]),
     (VideoPreset.PRORES_NUKE, SIMPLE_VIDEO[VideoPreset.PRORES_NUKE]["label"]),
     (VideoPreset.CINEFORM, SIMPLE_VIDEO[VideoPreset.CINEFORM]["label"]),
