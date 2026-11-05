@@ -3,6 +3,7 @@
 Używa realnego ffmpeg (generuje mały plik przez lavfi) plus mocków dla
 ścieżek błędów. Uruchomienie z repo: python3 -m unittest discover -s tests -v
 """
+import json
 import logging
 import subprocess
 import sys
@@ -27,6 +28,42 @@ def _ffmpeg_ok_cmd(out: Path) -> list:
 def _ffmpeg_fail_cmd() -> list:
     """Komenda ffmpeg, która kończy się błędem (brak źródła)."""
     return [presets.FFMPEG, "-y", "-i", "/nieistnieje/zebr/abc", "-y", "x"]
+
+
+class TestDNxHRSQ24(unittest.TestCase):
+    def test_output_streams_keep_dimensions_and_color_tags(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "source.mov"
+            runner._run_cmd([
+                presets.FFMPEG, "-n", "-f", "lavfi", "-i",
+                "testsrc2=size=320x180:rate=30:duration=1",
+                "-f", "lavfi", "-i", "sine=sample_rate=44100:duration=1",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-color_primaries", "bt709", "-color_trc", "bt709",
+                "-colorspace", "bt709", "-color_range", "tv",
+                "-c:a", "pcm_s24le", str(src),
+            ])
+            job = presets.build_video_jobs("dnxhr_sq_24", [src])[0]
+            runner.run_job(job)
+            result = subprocess.run(
+                [presets.FFPROBE, "-v", "error", "-show_streams", "-of", "json",
+                 str(job.outputs[0])], capture_output=True, text=True, check=True,
+            )
+            streams = json.loads(result.stdout)["streams"]
+            video = next(s for s in streams if s["codec_type"] == "video")
+            audio = next(s for s in streams if s["codec_type"] == "audio")
+            self.assertEqual(job.outputs[0].suffix, ".mov")
+            self.assertEqual(video["profile"], "DNXHR SQ")
+            self.assertEqual(video["pix_fmt"], "yuv422p")
+            self.assertEqual((video["width"], video["height"]), (320, 180))
+            self.assertEqual(video["avg_frame_rate"], "24/1")
+            self.assertEqual(video["nb_frames"], "24")
+            for key in ("color_primaries", "color_transfer", "color_space"):
+                self.assertEqual(video[key], "bt709")
+            self.assertEqual(video["color_range"], "tv")
+            self.assertEqual(audio["codec_name"], "pcm_s16le")
+            self.assertEqual(audio["sample_rate"], "48000")
+            self.assertEqual(audio["bits_per_sample"], 16)
 
 
 class TestRunCmd(unittest.TestCase):

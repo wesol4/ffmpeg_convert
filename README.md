@@ -178,6 +178,9 @@ python3 -m unittest discover -s tests -v        # lokalnie bez zależności
   strumienia (np. ekrany LED): twardy sufit 20 Mb/s w każdej sekundzie (wideo + audio,
   maxrate 16 Mb/s + bufor 4 Mb). Limit w `CONFIG.h264rate`. CLI: `--preset h264_20m`.
 - **MP4 H.265 / HEVC (CRF 23)** — mniejszy rozmiar niż H.264.
+- **MOV · DNxHR SQ · 8-bit 4:2:2 · 24 fps · PCM 16-bit/48 kHz** — zachowuje
+  rozdzielczość źródła, bez skalowania i filtrów korekcji koloru.
+  CLI: `--preset dnxhr_sq_24`; wynik: `nazwa_DNxHR_SQ_24.mov`.
 
 Wspólne zasady wyjść wideo:
 
